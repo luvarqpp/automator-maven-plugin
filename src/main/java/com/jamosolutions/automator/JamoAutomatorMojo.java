@@ -76,6 +76,7 @@ public class JamoAutomatorMojo extends AbstractMojo {
 		final Log log = getLog();
 		final File testSuiteFile = new File(baseDirAbsolutePath + "/src/main/resources", descriptor + ".xml");
 
+		log.debug("Going to use suite with name \"" + descriptor + "\". Full path is \"" + testSuiteFile.getAbsolutePath() + "\".");
 		if (false == testSuiteFile.exists()) {
 			log.warn(
 					"There was no testsuite file found. Set proper \"suite\" file (by default testsuite.xml). Currently looking for file here: \"" +
@@ -88,7 +89,6 @@ public class JamoAutomatorMojo extends AbstractMojo {
 			JAXBContext jaxbContext = JAXBContext.newInstance(TestSuite.class);
 			Unmarshaller jaxbUnmarshaller = jaxbContext.createUnmarshaller();
 			TestSuite testSuite = (TestSuite) jaxbUnmarshaller.unmarshal(testSuiteFile);
-			System.out.println(testSuite.getDevices().get(0).getUdid());
 			List<Execution> executions = new ArrayList<>();
 			//build the xml test suite document
 			//http://help.catchsoftware.com/display/ET/JUnit+Format
@@ -99,15 +99,14 @@ public class JamoAutomatorMojo extends AbstractMojo {
 			Element testsuiteElement = doc.createElement("testsuite");
 			doc.appendChild(testsuiteElement);
 			testsuiteElement.setAttribute("name", testSuite.getName());
-			Integer nbOfErrors = 0;
-			Integer nbOfFailures = 0;
-			List<String> loginResult = login(testSuite.getCredentials(), testSuite.getUrl());
-			String userKey = loginResult.get(0);
-			String accessToken = loginResult.get(1);
+			int nbOfErrors = 0;
+			int nbOfFailures = 0;
+
+			UserKeyAndToken loginResult = login(testSuite.getCredentials(), testSuite.getUrl());
 			for (Device device : testSuite.getDevices()) {
 				int idx = 0;
 				for (TestCase testCase : device.getTestCases()) {
-					ResponseStringWrapper response = runTestCase(device, testCase, userKey, accessToken, testSuite.getUrl(), idx);
+					ResponseStringWrapper response = runTestCase(device, testCase, loginResult, testSuite.getUrl(), idx);
 					idx++;
 					log.info("" + response.isSuccess());
 					if (response.isSuccess()) {
@@ -115,7 +114,7 @@ public class JamoAutomatorMojo extends AbstractMojo {
 					} else {
 						nbOfErrors++;
 						Element testcaseElement = doc.createElement("testcase");
-						testcaseElement.setAttribute("time", "" + 0);
+						testcaseElement.setAttribute("time", "0");
 						testcaseElement.setAttribute("name", testCase.getName());
 						testcaseElement.setAttribute("classname", "com.jamosolutions." + testSuite.getName() + "." + device.getName());
 						Element errorElement = doc.createElement("error");
@@ -127,6 +126,7 @@ public class JamoAutomatorMojo extends AbstractMojo {
 			}
 			Date now = new Date();
 			long startMillis = now.getTime();
+			int waitRound = 0;
 			while (executions.size() > 0) {
 				for (Iterator<Execution> iterator = executions.iterator(); iterator.hasNext();) {
 					Execution execution = iterator.next();
@@ -143,7 +143,7 @@ public class JamoAutomatorMojo extends AbstractMojo {
 						testcaseElement.appendChild(errorElement);
 						testsuiteElement.appendChild(testcaseElement);
 					} else {
-						Report report = getReport(execution.getExecutionId(), accessToken, testSuite.getUrl());
+						Report report = getReport(execution.getExecutionId(), loginResult.authToken, testSuite.getUrl());
 						if (report != null) {
 							Element testcaseElement = doc.createElement("testcase");
 							long duration = (report.getEndDate().getTime() - report.getCreationDate().getTime()) / 1000;
@@ -164,8 +164,12 @@ public class JamoAutomatorMojo extends AbstractMojo {
 						}
 					}
 				}
-				log.info("did not find report: will try again in 5 seconds...........");
+				if (waitRound == 6 || (waitRound % 12 == 0)) {
+					log.info("I have waited about " + (waitRound*5) + " seconds for reports till now. Going to wait another 5 seconds.");
+				}
+				log.debug("did not find report: will try again in 5 seconds...........");
 				Thread.sleep(5000);
+				waitRound++;
 			}
 			testsuiteElement.setAttribute("errors", "" + nbOfErrors);
 			testsuiteElement.setAttribute("failures", "" + nbOfFailures);
@@ -176,16 +180,14 @@ public class JamoAutomatorMojo extends AbstractMojo {
 			DOMSource source = new DOMSource(doc);
 			StreamResult result = new StreamResult(reportFile);
 			transformer.transform(source, result);
-		} catch (JAXBException e) {
+		} catch (JAXBException _ex) {
 			log.error("could not parse the descriptor file " + descriptor);
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		} catch (ParserConfigurationException e1) {
+		} catch (ParserConfigurationException _ex) {
 			log.error("could not build junit xml document");
-		} catch (TransformerException e) {
+		} catch (TransformerException _ex) {
 			log.error("could not build junit xml document");
-		} catch (InterruptedException e) {
-			log.info("the test suite has been interrupted");
+		} catch (InterruptedException ex) {
+			log.info("the test suite has been interrupted", ex);
 		}
 	}
 
@@ -201,7 +203,7 @@ public class JamoAutomatorMojo extends AbstractMojo {
 		return report;
 	}
 
-	private ResponseStringWrapper runTestCase(Device device, TestCase testCase, String userKey, String accessToken, String url, int index)
+	private ResponseStringWrapper runTestCase(Device device, TestCase testCase, UserKeyAndToken auth, String url, int index)
 			throws MojoExecutionException {
 		getLog().info("Running :" + testCase.getName() + " on device " + device.getName());
 		RestTemplate restTemplate = new RestTemplate();
@@ -222,7 +224,7 @@ public class JamoAutomatorMojo extends AbstractMojo {
 				builder = UriComponentsBuilder.fromHttpUrl(url + "/run/udid");
 			}
 		}
-		builder.queryParam("testCase", testCase.getName()).queryParam("index", "" + index).queryParam("userKey", userKey);
+		builder.queryParam("testCase", testCase.getName()).queryParam("index", "" + index).queryParam("userKey", auth.userKey);
 		if (StringUtils.isEmpty(device.getUdid())) {
 			getLog().info("running with device name " + device.getName());
 			builder.queryParam("device", device.getName());
@@ -231,7 +233,7 @@ public class JamoAutomatorMojo extends AbstractMojo {
 			builder.queryParam("uniqueDeviceIdentification", device.getUdid());
 		}
 		HttpHeaders headers = new HttpHeaders();
-		headers.add("X-AUTH-TOKEN", accessToken);
+		headers.add("X-AUTH-TOKEN", auth.authToken);
 		HttpEntity<String> entity = new HttpEntity<String>("parameters", headers);
 		ResponseEntity<ResponseStringWrapper> responseEntity = restTemplate.exchange(builder.build().encode().toUri(), HttpMethod.GET, entity,
 				ResponseStringWrapper.class);
@@ -241,18 +243,39 @@ public class JamoAutomatorMojo extends AbstractMojo {
 		return result;
 	}
 
-	private List<String> login(Credentials credentials, String url) throws MojoExecutionException {
+	private UserKeyAndToken login(Credentials credentials, String url) throws MojoExecutionException {
+		final Log log = getLog();
 		List<String> result = new ArrayList<>();
 		RestTemplate restTemplate = new RestTemplate();
 		restTemplate.setMessageConverters(getMessageConverters());
-		UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(url + "/rest/login").queryParam("j_username", credentials.getUsername())
-				.queryParam("j_password", credentials.getPassword()).queryParam("account", credentials.getAccount());
-		HttpEntity<LoginStatus> response = restTemplate.postForEntity(builder.build().encode().toUri(), null, LoginStatus.class);
-		LoginStatus loginStatus = response.getBody();
-		HttpHeaders headers = response.getHeaders();
-		result.add(loginStatus.getUserKeyString());
-		result.add(headers.get("X-AUTH-TOKEN").get(0));
-		return result;
+		UriComponentsBuilder builder = UriComponentsBuilder
+				.fromHttpUrl(url + "/rest/login")
+				.queryParam("j_username", credentials.getUsername())
+				.queryParam("j_password", "__hereComesYourActualPasswordWhichHave_" + credentials.getPassword().length() + "_characters__")
+				.queryParam("account", credentials.getAccount());
+		log.debug("Login POST request will be like this: " + builder.build());
+		log.debug("Going to replace dummy (for logging) password with actual one.");
+		builder = builder
+				.replaceQueryParam("j_password", credentials.getPassword());
+		ResponseEntity<LoginStatus> response = restTemplate.postForEntity(builder.build().encode().toUri(), null, LoginStatus.class);
+		log.debug("Login response is " + response);
+		if(false == response.getStatusCode().is2xxSuccessful()) {
+			log.error("Response from login has not 2XX status code! Response:" + response);
+			throw new RuntimeException("Login failed. Response is " + response.getStatusCode() + ". See log for more info.");
+		}
+		return new UserKeyAndToken(
+				response.getBody().getUserKeyString(),
+				response.getHeaders().get("X-AUTH-TOKEN").get(0)
+		);
+	}
+
+	private static class UserKeyAndToken {
+		public final String userKey;
+		public final String authToken;
+		private UserKeyAndToken(String userKey, String authToken) {
+			this.userKey = userKey;
+			this.authToken = authToken;
+		}
 	}
 
 	private static List<HttpMessageConverter<?>> getMessageConverters() {
