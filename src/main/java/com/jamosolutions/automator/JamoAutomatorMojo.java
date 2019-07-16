@@ -263,6 +263,12 @@ public class JamoAutomatorMojo extends AbstractMojo {
 			log.error("Response from login has not 2XX status code! Response:" + response);
 			throw new RuntimeException("Login failed. Response is " + response.getStatusCode() + ". See log for more info.");
 		}
+		if(false == response.getBody().isSuccess()) {
+			log.error("Response from login HAS 2XX status code, despite request body states that success is FALSE! Response:" + response);
+			log.error("Header with key X-AUTH-TOKEN = " + response.getHeaders().get("X-AUTH-TOKEN"));
+			throw new RuntimeException("Login failed. Response is " + response.getBody() + ". See log for more info.");
+		}
+
 		return new UserKeyAndToken(
 				response.getBody().getUserKeyString(),
 				response.getHeaders().get("X-AUTH-TOKEN").get(0)
