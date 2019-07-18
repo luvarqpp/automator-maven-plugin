@@ -127,6 +127,7 @@ public class JamoAutomatorMojo extends AbstractMojo {
 			Date now = new Date();
 			long startMillis = now.getTime();
 			int waitRound = 0;
+			final int numberOfTargetReports = executions.size();
 			while (executions.size() > 0) {
 				for (Iterator<Execution> iterator = executions.iterator(); iterator.hasNext();) {
 					Execution execution = iterator.next();
@@ -142,6 +143,7 @@ public class JamoAutomatorMojo extends AbstractMojo {
 						errorElement.setAttribute("message", "could not find any report within " + (duration / 60) + " minutes");
 						testcaseElement.appendChild(errorElement);
 						testsuiteElement.appendChild(testcaseElement);
+                        log.info("One more errored execution. number of errors: " + nbOfErrors + " elements left: " + executions.size());
 					} else {
 						Report report = getReport(execution.getExecutionId(), loginResult.authToken, testSuite.getUrl());
 						if (report != null) {
@@ -158,16 +160,20 @@ public class JamoAutomatorMojo extends AbstractMojo {
 										+ report.getKeyString());
 								failureElement.appendChild(errorMessageDetail);
 								testcaseElement.appendChild(failureElement);
-							}
+                                log.info("One more failed report. number of failures: " + nbOfFailures + " elements left: " + executions.size());
+							} else {
+							    log.info("One more report OK. number of elements left: " + executions.size());
+                            }
 							testsuiteElement.appendChild(testcaseElement);
 							iterator.remove();
 						}
 					}
 				}
+				// print progress at 0, 30 and 60 seconds and than each minute
 				if (waitRound == 6 || (waitRound % 12 == 0)) {
 					log.info("I have waited about " + (waitRound*5) + " seconds for reports till now. Going to wait another 5 seconds.");
 				}
-				log.debug("did not find report: will try again in 5 seconds...........");
+				log.debug("did not find report: will try again in 5 seconds........... (" + (numberOfTargetReports - executions.size()) + " of " + numberOfTargetReports + ")");
 				Thread.sleep(5000);
 				waitRound++;
 			}
@@ -180,6 +186,13 @@ public class JamoAutomatorMojo extends AbstractMojo {
 			DOMSource source = new DOMSource(doc);
 			StreamResult result = new StreamResult(reportFile);
 			transformer.transform(source, result);
+
+            log.info(
+                    "short report in log:\n" +
+                            "number of errors: \t" + nbOfErrors + "\n" +
+                            "number of failures: \t" + nbOfFailures + "\n" +
+                            "elements total: \t" + numberOfTargetReports
+            );
 		} catch (JAXBException _ex) {
 			log.error("could not parse the descriptor file " + descriptor);
 		} catch (ParserConfigurationException _ex) {
@@ -264,7 +277,7 @@ public class JamoAutomatorMojo extends AbstractMojo {
 			throw new RuntimeException("Login failed. Response is " + response.getStatusCode() + ". See log for more info.");
 		}
 		if(false == response.getBody().isSuccess()) {
-			log.error("Response from login HAS 2XX status code, despite request body states that success is FALSE! Response:" + response);
+			log.error("Response from login HAS 2XX status code, despite request body states that success is FALSE! (you cn try to check account parameter, which is \"" + credentials.getAccount() + "\") Response:" + response);
 			log.error("Header with key X-AUTH-TOKEN = " + response.getHeaders().get("X-AUTH-TOKEN"));
 			throw new RuntimeException("Login failed. Response is " + response.getBody() + ". See log for more info.");
 		}
