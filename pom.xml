@@ -2,7 +2,7 @@
  	<modelVersion>4.0.0</modelVersion>
   	<groupId>com.jamosolutions</groupId>
   	<artifactId>jamoautomator-maven-plugin</artifactId>
-  	<version>1.0.1-SNAPSHOT</version>
+  	<version>1.0.2</version>
   	<packaging>maven-plugin</packaging>
   	<name>Jamo Automator Maven CI Plugin</name>
 	<description>A plugin that allows you to run JamoAutomator testcases using a Continous Integration system like Jenkins or Bamboo</description>
@@ -141,14 +141,19 @@
 		    <version>2.3.2</version>
 		    <scope>runtime</scope>
 		</dependency>
-		<!--
-		<dependency>
-			  <groupId>com.jamosolutions</groupId>
-			  <artifactId>jamoautomation</artifactId>
-			  <version>1.1.27-SNAPSHOT</version>
-			  <classifier>domain</classifier>
-		</dependency>
-		-->
+        <dependency>
+            <groupId>org.fusesource.jansi</groupId>
+            <artifactId>jansi</artifactId>
+            <version>1.18</version>
+        </dependency>
+        <!--
+        <dependency>
+              <groupId>com.jamosolutions</groupId>
+              <artifactId>jamoautomation</artifactId>
+              <version>1.1.27-SNAPSHOT</version>
+              <classifier>domain</classifier>
+        </dependency>
+        -->
 
   	</dependencies>
   	<build>

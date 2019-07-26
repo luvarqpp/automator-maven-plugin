@@ -36,4 +36,9 @@ public class Device {
 	public void setTestCases(List<TestCase> testCases) {
 		this.testCases = testCases;
 	}
+
+	@Override
+	public String toString() {
+		return "Device(" + this.name + ";" + this.udid + ")";
+	}
 }

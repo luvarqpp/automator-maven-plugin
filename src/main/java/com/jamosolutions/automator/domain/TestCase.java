@@ -33,4 +33,9 @@ public class TestCase {
 	public void setSpecification(String specification) {
 		this.specification = specification;
 	}
+
+	@Override
+	public String toString() {
+		return "TestCase(" + this.name + ";" + this.specification + ")";
+	}
 }
