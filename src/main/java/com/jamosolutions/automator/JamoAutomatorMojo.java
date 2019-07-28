@@ -97,6 +97,7 @@ public class JamoAutomatorMojo extends AbstractMojo {
 		ExecReport er = new ExecReport(log);
 		if (testSuiteFile.exists()) {
 			try {
+				long startMillis = System.currentTimeMillis();
 				//parse the testsuite file
 				JAXBContext jaxbContext = JAXBContext.newInstance(TestSuite.class);
 				Unmarshaller jaxbUnmarshaller = jaxbContext.createUnmarshaller();
@@ -125,26 +126,24 @@ public class JamoAutomatorMojo extends AbstractMojo {
                 }
                 log.debug("there are now @|bold " + executionsToDoFlight.size() + "|@ future executions requests.");
 
-                Date now = new Date();
                 List<Execution> executionsInFlight = new ArrayList<>();
-                long startMillis = now.getTime();
 				while (executionsToDoFlight.size() > 0 || executionsInFlight.size() > 0) {
 				    Set<Device> devicesWithSingleExecutionOnIt = new HashSet<>();
 
 					for (Iterator<Execution> iterator = executionsInFlight.iterator(); iterator.hasNext();) {
 						Execution execution = iterator.next();
-						if ((new Date().getTime()) - startMillis > execution.getTestCase().getTimeout() * 60 * 1000) {
+						long durationTillNowMs = (System.currentTimeMillis() - execution.getStartTimeMillis()) / 1000;
+						if (durationTillNowMs > execution.getTestCase().getTimeout() * 60 * 1000) {
 							iterator.remove();
 							er.recordTimeout(execution.getDevice(), execution.getTestCase());
 							Element testcaseElement = doc.createElement("testcase");
-							long duration = ((new Date().getTime()) - startMillis) / 1000;
-							testcaseElement.setAttribute("time", "" + duration);
+							testcaseElement.setAttribute("time", "" + (durationTillNowMs / 1000.0));
 							testcaseElement.setAttribute("name", execution.getTestCase().getName());
 							testcaseElement.setAttribute("classname", "com.jamosolutions." + testSuite.getName() + "." + execution.getDevice().getName());
 							Element errorElement = doc.createElement("error");
 							errorElement.setAttribute(
 									"message",
-									"could not find any report within " + (duration / 60) + " minutes. You can try later " +
+									"could not find any report within " + (durationTillNowMs / 1000 / 60) + " minutes. You can try later " +
 											" at " + getReportUri(execution.getExecutionId(), accessToken, testSuite.getUrl())
 							);
 							testcaseElement.appendChild(errorElement);
@@ -153,8 +152,8 @@ public class JamoAutomatorMojo extends AbstractMojo {
 							Report report = getReport(execution.getExecutionId(), accessToken, testSuite.getUrl());
 							if (report != null) {
 								Element testcaseElement = doc.createElement("testcase");
-								long duration = (report.getEndDate().getTime() - report.getCreationDate().getTime()) / 1000;
-								testcaseElement.setAttribute("time", "" + duration);
+								long durationFromReportMs = report.getEndDate().getTime() - report.getCreationDate().getTime();
+								testcaseElement.setAttribute("time", "" + (durationFromReportMs/ 1000));
 								testcaseElement.setAttribute("name", execution.getTestCase().getName());
 								testcaseElement.setAttribute("classname", "com.jamosolutions." + testSuite.getName() + "." + execution.getDevice().getName());
 								if (report.getStatus() != 0) {
@@ -223,7 +222,8 @@ public class JamoAutomatorMojo extends AbstractMojo {
 
 				testsuiteElement.setAttribute("errors", "" + er.getNbOfErrors());
 				testsuiteElement.setAttribute("failures", "" + er.getNbOfTestFailures());
-				long duration = ((new Date().getTime()) - startMillis) / 1000;
+				long duration = (System.currentTimeMillis() - startMillis) / 1000;
+				log.info("Wall time of running reports is " + duration + " seconds.");
 				testsuiteElement.setAttribute("time", "" + duration);
 				TransformerFactory transformerFactory = TransformerFactory.newInstance();
 				Transformer transformer = transformerFactory.newTransformer();
@@ -392,10 +392,12 @@ public class JamoAutomatorMojo extends AbstractMojo {
 
     private class Execution extends FutureExecution {
         private String executionId;
+		private long startTimeMillis;
 
-        public Execution(String executionId, Device device, TestCase testCase) {
+		public Execution(String executionId, Device device, TestCase testCase) {
             super(device, testCase);
             this.executionId = executionId;
+            this.startTimeMillis = System.currentTimeMillis();
         }
 
         public String getExecutionId() {
@@ -405,7 +407,11 @@ public class JamoAutomatorMojo extends AbstractMojo {
         public void setExecutionId(String executionId) {
             this.executionId = executionId;
         }
-    }
+
+		public long getStartTimeMillis() {
+			return this.startTimeMillis;
+		}
+	}
 
 	/**
 	 * Simple "counter holder" class. You should report all tests to it using one of four methods (according result of test).
