@@ -81,4 +81,9 @@ public class LoginStatus implements Serializable {
 	public void setFirstName(String firstName) {
 		this.firstName = firstName;
 	}
+
+	@Override
+	public String toString() {
+		return "LoginStatus(success: " + success + ", username: " + username + ", firstName: " + firstName + ", userKeyString: " + userKeyString + ", isSuperAdmin: " + isSuperAdmin + ", isAdmin: " + isAdmin + ", isEditor: " + isEditor + ", isActivated: " + isActivated + ", account: " + account + ")";
+	}
 }

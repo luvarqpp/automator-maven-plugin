@@ -22,6 +22,7 @@ import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.logging.Log;
 import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
+import org.apache.maven.project.MavenProject;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -51,18 +52,27 @@ public class JamoAutomatorMojo extends AbstractMojo {
 	//maven version plugin
 	//http://www.mojohaus.org/versions-maven-plugin/
 	//mvn versions:use-latest-versions -DallowSnapshots=true
-	@Parameter(defaultValue = "${project.basedir}")
-	private File baseDir;
+
+    @Parameter(readonly = true, defaultValue = "${project}")
+    private MavenProject project;
+
 	@Parameter(defaultValue = "${suite}")
 	private String descriptor;
 
-	protected File getReportDirectory() {
-		File reportFolder = new File(baseDir.getAbsolutePath(), "target/surefire-reports");
+	/**
+	 * Holds last debug log string for each device. This is used to suppress logging same messages in basic scenarios.
+	 *
+	 * @see #logDebugForDevice(Log, Device, String)
+	 */
+	private final Map<Device, String> lastDebugLogPerDevice = new HashMap<>();
+
+	protected File getReportDirectory(File baseDirAbsolutePath) {
+		File reportFolder = new File(baseDirAbsolutePath, "target/surefire-reports");
 		if (!reportFolder.exists()) {
 			getLog().info("creating report folder");
 			reportFolder.mkdirs();
 		}
-		return new File(baseDir.getAbsolutePath(), "target/surefire-reports");
+		return new File(baseDirAbsolutePath, "target/surefire-reports");
 	}
 
 	public static String colorize(String text) {
@@ -86,161 +96,195 @@ public class JamoAutomatorMojo extends AbstractMojo {
 		if (descriptor == null) {
 			descriptor = "testsuite";
 		}
-		File testSuiteFile;
-		if (baseDir == null) {
-			baseDir = new File(".");
-			testSuiteFile = new File(baseDir.getAbsolutePath() + "/src/test/resources", descriptor + ".xml");
-			log.info("Going to set current dir as baseDir. baseDir=" + baseDir.getAbsolutePath());
-		} else {
-			testSuiteFile = new File(baseDir.getAbsolutePath() + "/src/main/resources", descriptor + ".xml");
-		}
-		ExecReport er = new ExecReport(log);
-		if (testSuiteFile.exists()) {
-			try {
-				long startMillis = System.currentTimeMillis();
-				//parse the testsuite file
-				JAXBContext jaxbContext = JAXBContext.newInstance(TestSuite.class);
-				Unmarshaller jaxbUnmarshaller = jaxbContext.createUnmarshaller();
-				TestSuite testSuite = (TestSuite) jaxbUnmarshaller.unmarshal(testSuiteFile);
-				//build the xml test suite document
-				//http://help.catchsoftware.com/display/ET/JUnit+Format
-				File reportFile = new File(getReportDirectory().getAbsolutePath(), "TEST-com.jamoautomator." + testSuite.getName() + ".xml");
-				DocumentBuilderFactory docFactory = DocumentBuilderFactory.newInstance();
-				DocumentBuilder docBuilder = docFactory.newDocumentBuilder();
-				Document doc = docBuilder.newDocument();
-				Element testsuiteElement = doc.createElement("testsuite");
-				doc.appendChild(testsuiteElement);
-				testsuiteElement.setAttribute("name", testSuite.getName());
-				List<String> loginResult = login(testSuite.getCredentials(), testSuite.getUrl());
-				String userKey = loginResult.get(0);
-				String accessToken = loginResult.get(1);
 
-                List<FutureExecution> executionsToDoFlight = new ArrayList<>();
+        final File testSuiteFile;
 
-                log.debug("Going to prefill all future executions.");
-                for (Device device : testSuite.getDevices()) {
-                    int idx = 0;
-                    for (TestCase testCase : device.getTestCases()) {
-                        executionsToDoFlight.add(new FutureExecution(device, testCase));
+        File baseDir;
+        if (this.project == null) {
+            baseDir = new File(".");
+            testSuiteFile = new File(baseDir.getAbsolutePath() + "/src/test/resources", descriptor + ".xml");
+            log.info("Going to set current dir as baseDir. baseDir=" + baseDir.getAbsolutePath());
+        } else {
+            baseDir = this.project.getBasedir();
+            testSuiteFile = new File(baseDir.getAbsolutePath() + "/src/main/resources", descriptor + ".xml");
+        }
+
+
+        log.debug("Going to use suite with name \"" + descriptor + "\". Full path is \"" + testSuiteFile.getAbsolutePath() + "\".");
+        if (false == testSuiteFile.exists()) {
+            log.warn(
+                    "There was no testsuite file found. Set proper \"suite\" file (by default testsuite.xml). Currently looking for file here: \"" +
+                            testSuiteFile.getAbsolutePath() + "\". Going to do nothing."
+            );
+            return;
+        }
+        ExecReport er = new ExecReport(log);
+        try {
+			long startMillis = System.currentTimeMillis();
+            //parse the testsuite file
+            JAXBContext jaxbContext = JAXBContext.newInstance(TestSuite.class);
+            Unmarshaller jaxbUnmarshaller = jaxbContext.createUnmarshaller();
+            TestSuite testSuite = (TestSuite) jaxbUnmarshaller.unmarshal(testSuiteFile);
+            //build the xml test suite document
+            //http://help.catchsoftware.com/display/ET/JUnit+Format
+            File reportFile = new File(getReportDirectory(baseDir).getAbsolutePath(), "TEST-com.jamoautomator." + testSuite.getName() + ".xml");
+            DocumentBuilderFactory docFactory = DocumentBuilderFactory.newInstance();
+            DocumentBuilder docBuilder = docFactory.newDocumentBuilder();
+            Document doc = docBuilder.newDocument();
+            Element testsuiteElement = doc.createElement("testsuite");
+            doc.appendChild(testsuiteElement);
+            testsuiteElement.setAttribute("name", testSuite.getName());
+            UserKeyAndToken loginResult = login(testSuite.getCredentials(), testSuite.getUrl());
+
+            List<FutureExecution> executionsToDoFlight = new ArrayList<>();
+
+            log.debug("Going to prefill all future executions.");
+            for (Device device : testSuite.getDevices()) {
+                int idx = 0;
+                for (TestCase testCase : device.getTestCases()) {
+                    executionsToDoFlight.add(new FutureExecution(device, testCase));
+                }
+            }
+            log.debug("there are now @|bold " + executionsToDoFlight.size() + "|@ future executions requests.");
+
+            int waitRound = 0;
+            List<Execution> executionsInFlight = new ArrayList<>();
+            while (executionsToDoFlight.size() > 0 || executionsInFlight.size() > 0) {
+                Set<Device> devicesWithSingleExecutionOnIt = new HashSet<>();
+
+                for (Iterator<Execution> iterator = executionsInFlight.iterator(); iterator.hasNext();) {
+                    Execution execution = iterator.next();
+                    long durationTillNowMs = (System.currentTimeMillis() - execution.getStartTimeMillis()) / 1000;
+                    if (durationTillNowMs > execution.getTestCase().getTimeout() * 60 * 1000) {
+                        iterator.remove();
+                        er.recordTimeout(execution.getDevice(), execution.getTestCase());
+                        Element testcaseElement = doc.createElement("testcase");
+                        testcaseElement.setAttribute("time", "" + (durationTillNowMs / 1000.0));
+                        testcaseElement.setAttribute("name", execution.getTestCase().getName());
+                        testcaseElement.setAttribute("classname", "com.jamosolutions." + testSuite.getName() + "." + execution.getDevice().getName());
+                        Element errorElement = doc.createElement("error");
+                        errorElement.setAttribute(
+                                "message",
+                                "could not find any report within " + (durationTillNowMs / 1000 / 60) + " minutes. You can try later " +
+                                        " at " + getReportUri(execution.getExecutionId(), loginResult.authToken, testSuite.getUrl())
+                        );
+                        testcaseElement.appendChild(errorElement);
+                        testsuiteElement.appendChild(testcaseElement);
+                    } else {
+                        Report report = getReport(execution.getExecutionId(), loginResult.authToken, testSuite.getUrl());
+                        if (report != null) {
+                            Element testcaseElement = doc.createElement("testcase");
+                            long durationFromReportMs = report.getEndDate().getTime() - report.getCreationDate().getTime();
+                            testcaseElement.setAttribute("time", "" + (durationFromReportMs/ 1000));
+                            testcaseElement.setAttribute("name", execution.getTestCase().getName());
+                            testcaseElement.setAttribute("classname", "com.jamosolutions." + testSuite.getName() + "." + execution.getDevice().getName());
+                            if (report.getStatus() != 0) {
+                                final String linkToReport = testSuite.getUrl() + "/index.html?reportDetail=" + report.getKeyString();
+                                er.recordTestFailure(execution.getDevice(), execution.getTestCase(), linkToReport);
+                                Element failureElement = doc.createElement("failure");
+                                failureElement.setAttribute("message", "The test case did not succeed.");
+                                Text errorMessageDetail = doc.createTextNode("For more detail click " + linkToReport);
+                                failureElement.appendChild(errorMessageDetail);
+                                testcaseElement.appendChild(failureElement);
+                            } else {
+                                Element systemoutElement = doc.createElement("system-out");
+                                Text okMessageDetail = doc.createTextNode("For more detail click " + testSuite.getUrl() + "/index.html?reportDetail="
+                                        + report.getKeyString());
+                                systemoutElement.appendChild(okMessageDetail);
+                                testcaseElement.appendChild(systemoutElement);
+                                er.recordSuccess(execution.getDevice(), execution.getTestCase());
+                            }
+                            testsuiteElement.appendChild(testcaseElement);
+                            iterator.remove();
+                        } else {
+							logDebugForDevice(
+									log,
+									execution.getDevice(),
+									colorize(
+											"Device " + device(execution.getDevice()) + " have still running test " +
+													"@|blue " + execution.getTestCase() + "|@ on it (no report found with id " +
+													"@|blue " + execution.getExecutionId() + "|@). Going to wait."
+
+									)
+							);
+							devicesWithSingleExecutionOnIt.add(execution.device);
+                        }
+                    }
+                } // end of for iterator through executionsInFlight
+
+                Set<Device> idleDevices = new HashSet<>(testSuite.getDevices());
+                idleDevices.removeAll(devicesWithSingleExecutionOnIt);
+
+                for (Device idleDevice: idleDevices) {
+                    Optional<FutureExecution> newTest = popAnotherTestForDevice(executionsToDoFlight, idleDevice);
+                    if(newTest.isPresent()) {
+                        FutureExecution needToExecute = newTest.get();
+                        log.info(colorize("Device " + device(idleDevice) + " have no awaiting report for now, going to execute " + testCase(needToExecute.testCase) + " on it."));
+                        // request test execution
+                        final TestCase testCaseToExecute = needToExecute.getTestCase();
+                        ResponseStringWrapper response = runTestCase(idleDevice, testCaseToExecute, loginResult, testSuite.getUrl(), log);
+                        if (response.isSuccess()) {
+                            executionsInFlight.add(new Execution(response.getMessage(), idleDevice, testCaseToExecute));
+                        } else {
+                            er.recordExecError(idleDevice, testCaseToExecute);
+                            Element testcaseElement = doc.createElement("testcase");
+                            testcaseElement.setAttribute("time", "" + 0);
+                            testcaseElement.setAttribute("name", testCaseToExecute.getName());
+                            testcaseElement.setAttribute("classname", "com.jamosolutions." + testSuite.getName() + "." + needToExecute.getDevice().getName());
+                            Element errorElement = doc.createElement("error");
+                            errorElement.setAttribute("message", response.getMessage());
+                            testcaseElement.appendChild(errorElement);
+                            testsuiteElement.appendChild(testcaseElement);
+                        }
+                    } else {
+						logDebugForDevice(
+								log,
+								idleDevice,
+								colorize("Device " + device(idleDevice) + " is not waiting for any report, nor have any tests to execute.")
+						);
                     }
                 }
-                log.debug("there are now @|bold " + executionsToDoFlight.size() + "|@ future executions requests.");
 
-                List<Execution> executionsInFlight = new ArrayList<>();
-				while (executionsToDoFlight.size() > 0 || executionsInFlight.size() > 0) {
-				    Set<Device> devicesWithSingleExecutionOnIt = new HashSet<>();
+                // print progress at 0, 30 and 60 seconds and than each minute
+                if (waitRound == 6 || (waitRound % 12 == 0)) {
+                    log.info("I have waited about " + (waitRound*5) + " seconds for reports till now. Going to wait another 5 seconds (" + er.getTotalExecutionsAtemps() + " done, " + executionsToDoFlight.size() + " waiting).");
+                }
+                Thread.sleep(5000);
+                waitRound++;
+            } // end of while there is executing, or to be executed.
+            this.logSummaryReport(log, er);
 
-					for (Iterator<Execution> iterator = executionsInFlight.iterator(); iterator.hasNext();) {
-						Execution execution = iterator.next();
-						long durationTillNowMs = (System.currentTimeMillis() - execution.getStartTimeMillis()) / 1000;
-						if (durationTillNowMs > execution.getTestCase().getTimeout() * 60 * 1000) {
-							iterator.remove();
-							er.recordTimeout(execution.getDevice(), execution.getTestCase());
-							Element testcaseElement = doc.createElement("testcase");
-							testcaseElement.setAttribute("time", "" + (durationTillNowMs / 1000.0));
-							testcaseElement.setAttribute("name", execution.getTestCase().getName());
-							testcaseElement.setAttribute("classname", "com.jamosolutions." + testSuite.getName() + "." + execution.getDevice().getName());
-							Element errorElement = doc.createElement("error");
-							errorElement.setAttribute(
-									"message",
-									"could not find any report within " + (durationTillNowMs / 1000 / 60) + " minutes. You can try later " +
-											" at " + getReportUri(execution.getExecutionId(), accessToken, testSuite.getUrl())
-							);
-							testcaseElement.appendChild(errorElement);
-							testsuiteElement.appendChild(testcaseElement);
-						} else {
-							Report report = getReport(execution.getExecutionId(), accessToken, testSuite.getUrl());
-							if (report != null) {
-								Element testcaseElement = doc.createElement("testcase");
-								long durationFromReportMs = report.getEndDate().getTime() - report.getCreationDate().getTime();
-								testcaseElement.setAttribute("time", "" + (durationFromReportMs/ 1000));
-								testcaseElement.setAttribute("name", execution.getTestCase().getName());
-								testcaseElement.setAttribute("classname", "com.jamosolutions." + testSuite.getName() + "." + execution.getDevice().getName());
-								if (report.getStatus() != 0) {
-									final String linkToReport = testSuite.getUrl() + "/index.html?reportDetail=" + report.getKeyString();
-									er.recordTestFailure(execution.getDevice(), execution.getTestCase(), linkToReport);
-									Element failureElement = doc.createElement("failure");
-									failureElement.setAttribute("message", "The test case did not succeed.");
-									Text errorMessageDetail = doc.createTextNode("For more detail click " + linkToReport);
-									failureElement.appendChild(errorMessageDetail);
-									testcaseElement.appendChild(failureElement);
-								} else {
-									Element systemoutElement = doc.createElement("system-out");
-									Text okMessageDetail = doc.createTextNode("For more detail click " + testSuite.getUrl() + "/index.html?reportDetail="
-											+ report.getKeyString());
-									systemoutElement.appendChild(okMessageDetail);
-									testcaseElement.appendChild(systemoutElement);
-									er.recordSuccess(execution.getDevice(), execution.getTestCase());
-								}
-								testsuiteElement.appendChild(testcaseElement);
-								iterator.remove();
-							} else {
-								log.debug(
-										ansi().render("Device " + device(execution.getDevice()) + " have still running test " +
-												"@|blue " + execution.getTestCase() + "|@ on it (no report found with id " +
-												"@|blue " + execution.getExecutionId() + "|@). Going to wait."
-										).toString()
-								);
-								devicesWithSingleExecutionOnIt.add(execution.device);
-							}
-                        }
-					} // end of for iterator through executionsInFlight
+            testsuiteElement.setAttribute("errors", "" + er.getNbOfErrors());
+            testsuiteElement.setAttribute("failures", "" + er.getNbOfTestFailures());
+            long totalDuration = (System.currentTimeMillis() - startMillis) / 1000;
+            log.info("Wall time of running reports is " + totalDuration + " seconds.");
+            testsuiteElement.setAttribute("time", "" + totalDuration);
+            TransformerFactory transformerFactory = TransformerFactory.newInstance();
+            Transformer transformer = transformerFactory.newTransformer();
+            DOMSource source = new DOMSource(doc);
+            StreamResult result = new StreamResult(reportFile);
+            transformer.transform(source, result);
+        } catch (JAXBException e) {
+            log.error("could not parse the descriptor file " + descriptor, e);
+        } catch (ParserConfigurationException e1) {
+            log.error("could not build junit xml document", e1);
+        } catch (TransformerException e) {
+            log.error("could not build junit xml document", e);
+        } catch (InterruptedException e) {
+            log.info("the test suite has been interrupted", e);
+        }
+	}
 
-                    Set<Device> idleDevices = new HashSet<>(testSuite.getDevices());
-					idleDevices.removeAll(devicesWithSingleExecutionOnIt);
-
-                    for (Device idleDevice: idleDevices) {
-                        Optional<FutureExecution> newTest = popAnotherTestForDevice(executionsToDoFlight, idleDevice);
-                        if(newTest.isPresent()) {
-							FutureExecution needToExecute = newTest.get();
-							log.info(colorize("Device " + device(idleDevice) + " have no awaiting report for now, going to execute " + testCase(needToExecute.testCase) + " on it."));
-							// request test execution
-							final TestCase testCaseToExecute = needToExecute.getTestCase();
-							ResponseStringWrapper response = runTestCase(idleDevice, testCaseToExecute, userKey, accessToken, testSuite.getUrl(), log);
-							if (response.isSuccess()) {
-								executionsInFlight.add(new Execution(response.getMessage(), idleDevice, testCaseToExecute));
-							} else {
-								er.recordExecError(idleDevice, testCaseToExecute);
-								Element testcaseElement = doc.createElement("testcase");
-								testcaseElement.setAttribute("time", "" + 0);
-								testcaseElement.setAttribute("name", testCaseToExecute.getName());
-								testcaseElement.setAttribute("classname", "com.jamosolutions." + testSuite.getName() + "." + needToExecute.getDevice().getName());
-								Element errorElement = doc.createElement("error");
-								errorElement.setAttribute("message", response.getMessage());
-								testcaseElement.appendChild(errorElement);
-								testsuiteElement.appendChild(testcaseElement);
-							}
-						} else {
-                        	log.debug(colorize("Device " + device(idleDevice) + " is not waiting for any report, nor have any tests to execute."));
-						}
-                    }
-
-					log.info("did not find report: will try again in 30 seconds...........");
-					Thread.sleep(30000);
-				} // end of while there is executing, or to be executed.
-				this.logSummaryReport(log, er);
-
-				testsuiteElement.setAttribute("errors", "" + er.getNbOfErrors());
-				testsuiteElement.setAttribute("failures", "" + er.getNbOfTestFailures());
-				long duration = (System.currentTimeMillis() - startMillis) / 1000;
-				log.info("Wall time of running reports is " + duration + " seconds.");
-				testsuiteElement.setAttribute("time", "" + duration);
-				TransformerFactory transformerFactory = TransformerFactory.newInstance();
-				Transformer transformer = transformerFactory.newTransformer();
-				DOMSource source = new DOMSource(doc);
-				StreamResult result = new StreamResult(reportFile);
-				transformer.transform(source, result);
-			} catch (JAXBException e) {
-				log.error("could not parse the descriptor file " + descriptor);
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-			} catch (ParserConfigurationException e1) {
-				log.error("could not build junit xml document");
-			} catch (TransformerException e) {
-				log.error("could not build junit xml document");
-			} catch (InterruptedException e) {
-				log.info("the test suite has been interrupted");
-			}
+	/**
+	 * Logs (in debug level) given line, if given device has not logged exactly same message as last message.
+	 *
+	 * @see #lastDebugLogPerDevice
+	 */
+	private void logDebugForDevice(Log log, Device device, String message) {
+		String lastLog = lastDebugLogPerDevice.get(device);
+		if(!Objects.equals(lastLog, message)) {
+			lastDebugLogPerDevice.put(device, message);
+			log.debug(message);
 		}
 	}
 
@@ -298,7 +342,7 @@ public class JamoAutomatorMojo extends AbstractMojo {
 		return report;
 	}
 
-	private ResponseStringWrapper runTestCase(Device device, TestCase testCase, String userKey, String accessToken, String url, Log log)
+	private ResponseStringWrapper runTestCase(Device device, TestCase testCase, UserKeyAndToken auth, String url, Log log)
 			throws MojoExecutionException {
 		log.info(colorize("Going to execute :" + testCase(testCase) + " on device " + device(device)));
 		RestTemplate restTemplate = new RestTemplate();
@@ -320,7 +364,7 @@ public class JamoAutomatorMojo extends AbstractMojo {
 			}
 		}
 		// index parameter does not have meaning anymore, so sending 0. see mail from 20190726
-		builder.queryParam("testCase", testCase.getName()).queryParam("index", "0").queryParam("userKey", userKey);
+		builder.queryParam("testCase", testCase.getName()).queryParam("index", "0").queryParam("userKey", auth.userKey);
 		if (StringUtils.isEmpty(device.getUdid())) {
 			log.debug(colorize("running with device name " + device(device)));
 			builder.queryParam("device", device.getName());
@@ -329,7 +373,7 @@ public class JamoAutomatorMojo extends AbstractMojo {
 			builder.queryParam("uniqueDeviceIdentification", device.getUdid());
 		}
 		HttpHeaders headers = new HttpHeaders();
-		headers.add("X-AUTH-TOKEN", accessToken);
+		headers.add("X-AUTH-TOKEN", auth.authToken);
 		HttpEntity<String> entity = new HttpEntity<String>("parameters", headers);
 		final URI urlFinal = builder.build().encode().toUri();
 		try {
@@ -344,18 +388,45 @@ public class JamoAutomatorMojo extends AbstractMojo {
 		return result;
 	}
 
-	private List<String> login(Credentials credentials, String url) throws MojoExecutionException {
+	private UserKeyAndToken login(Credentials credentials, String url) throws MojoExecutionException {
+		final Log log = getLog();
 		List<String> result = new ArrayList<>();
 		RestTemplate restTemplate = new RestTemplate();
 		restTemplate.setMessageConverters(getMessageConverters());
-		UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(url + "/rest/login").queryParam("j_username", credentials.getUsername())
-				.queryParam("j_password", credentials.getPassword()).queryParam("account", credentials.getAccount());
-		HttpEntity<LoginStatus> response = restTemplate.postForEntity(builder.build().encode().toUri(), null, LoginStatus.class);
-		LoginStatus loginStatus = response.getBody();
-		HttpHeaders headers = response.getHeaders();
-		result.add(loginStatus.getUserKeyString());
-		result.add(headers.get("X-AUTH-TOKEN").get(0));
-		return result;
+		UriComponentsBuilder builder = UriComponentsBuilder
+				.fromHttpUrl(url + "/rest/login")
+				.queryParam("j_username", credentials.getUsername())
+				.queryParam("j_password", "__hereComesYourActualPasswordWhichHave_" + credentials.getPassword().length() + "_characters__")
+				.queryParam("account", credentials.getAccount());
+		log.debug("Login POST request will be like this: " + builder.build());
+		log.debug("Going to replace dummy (for logging) password with actual one.");
+		builder = builder
+				.replaceQueryParam("j_password", credentials.getPassword());
+		ResponseEntity<LoginStatus> response = restTemplate.postForEntity(builder.build().encode().toUri(), null, LoginStatus.class);
+		log.debug("Login response is " + response);
+		if(false == response.getStatusCode().is2xxSuccessful()) {
+			log.error("Response from login has not 2XX status code! Response:" + response);
+			throw new RuntimeException("Login failed. Response is " + response.getStatusCode() + ". See log for more info.");
+		}
+		if(false == response.getBody().isSuccess()) {
+			log.error("Response from login HAS 2XX status code, despite request body states that success is FALSE! (you cn try to check account parameter, which is \"" + credentials.getAccount() + "\") Response:" + response);
+			log.error("Header with key X-AUTH-TOKEN = " + response.getHeaders().get("X-AUTH-TOKEN"));
+			throw new RuntimeException("Login failed. Response is " + response.getBody() + ". See log for more info.");
+		}
+
+		return new UserKeyAndToken(
+				response.getBody().getUserKeyString(),
+				response.getHeaders().get("X-AUTH-TOKEN").get(0)
+		);
+	}
+
+	private static class UserKeyAndToken {
+		public final String userKey;
+		public final String authToken;
+		private UserKeyAndToken(String userKey, String authToken) {
+			this.userKey = userKey;
+			this.authToken = authToken;
+		}
 	}
 
 	private static List<HttpMessageConverter<?>> getMessageConverters() {
