@@ -49,4 +49,9 @@ public class ResponseStringWrapper {
 	public void setMessage(String message) {
 		this.message = message;
 	}
+
+	@Override
+	public String toString() {
+		return "ResponseStringWrapper(" + this.success + ";" + this.data + ";" + this.message + ")";
+	}
 }
