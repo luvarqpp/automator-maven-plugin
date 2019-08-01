@@ -17,6 +17,10 @@ import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
 
+import com.jamosolutions.automator.help.ExecReport;
+import com.jamosolutions.automator.help.Execution;
+import com.jamosolutions.automator.help.FutureExecution;
+import com.jamosolutions.automator.help.UserKeyAndToken;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.logging.Log;
@@ -43,6 +47,8 @@ import com.jamosolutions.automator.domain.TestCase;
 import com.jamosolutions.automator.domain.TestSuite;
 import com.jamosolutions.jamoAutomator.domain.LoginStatus;
 import com.jamosolutions.jamoAutomator.domain.Report;
+
+import static com.jamosolutions.automator.help.Colorizer.*;
 import static org.fusesource.jansi.Ansi.*;
 
 @Mojo(name = "run")
@@ -73,20 +79,6 @@ public class JamoAutomatorMojo extends AbstractMojo {
 			reportFolder.mkdirs();
 		}
 		return new File(baseDirAbsolutePath, "target/surefire-reports");
-	}
-
-	public static String colorize(String text) {
-		return ansi().render(text).toString();
-	}
-
-	public static String device(Device device) {
-		return "@|blue,bold " + device.getName() + "|@";
-	}
-	public static String deviceUdid(Device device) {
-		return "@|faint,blue,bold " + device.getUdid() + "|@";
-	}
-	public static String testCase(TestCase tc) {
-		return "@|faint,blue,bold " + tc.getName() + "|@";
 	}
 
 	public void execute() throws MojoExecutionException {
@@ -207,7 +199,7 @@ public class JamoAutomatorMojo extends AbstractMojo {
 
 									)
 							);
-							devicesWithSingleExecutionOnIt.add(execution.device);
+							devicesWithSingleExecutionOnIt.add(execution.getDevice());
                         }
                     }
                 } // end of for iterator through executionsInFlight
@@ -216,17 +208,18 @@ public class JamoAutomatorMojo extends AbstractMojo {
                 idleDevices.removeAll(devicesWithSingleExecutionOnIt);
 
                 for (Device idleDevice: idleDevices) {
+                	long requestStartTime = System.currentTimeMillis();
                     Optional<FutureExecution> newTest = popAnotherTestForDevice(executionsToDoFlight, idleDevice);
                     if(newTest.isPresent()) {
                         FutureExecution needToExecute = newTest.get();
-                        log.info(colorize("Device " + device(idleDevice) + " have no awaiting report for now, going to execute " + testCase(needToExecute.testCase) + " on it."));
+                        log.info(colorize("Device " + device(idleDevice) + " have no awaiting report for now, going to execute " + testCase(needToExecute.getTestCase()) + " on it."));
                         // request test execution
                         final TestCase testCaseToExecute = needToExecute.getTestCase();
                         ResponseStringWrapper response = runTestCase(idleDevice, testCaseToExecute, loginResult, testSuite.getUrl(), log);
                         if (response.isSuccess()) {
                             executionsInFlight.add(new Execution(response.getMessage(), idleDevice, testCaseToExecute));
                         } else {
-                            er.recordExecError(idleDevice, testCaseToExecute, response);
+                            er.recordExecError(idleDevice, testCaseToExecute, response, requestStartTime);
                             Element testcaseElement = doc.createElement("testcase");
                             testcaseElement.setAttribute("time", "" + 0);
                             testcaseElement.setAttribute("name", testCaseToExecute.getName());
@@ -247,12 +240,12 @@ public class JamoAutomatorMojo extends AbstractMojo {
 
                 // print progress at 0, 30 and 60 seconds and than each minute
                 if (waitRound == 6 || (waitRound % 12 == 0)) {
-                    logProgressReport(log, er, waitRound, executionsToDoFlight, executionsInFlight);
+                    er.logProgressReport(waitRound, executionsToDoFlight, executionsInFlight);
                 }
                 Thread.sleep(5000);
                 waitRound++;
             } // end of while there is executing, or to be executed.
-            this.logSummaryReport(log, er);
+            er.logSummaryReport();
 
             testsuiteElement.setAttribute("errors", "" + er.getNbOfErrors());
             testsuiteElement.setAttribute("failures", "" + er.getNbOfTestFailures());
@@ -288,54 +281,6 @@ public class JamoAutomatorMojo extends AbstractMojo {
 		}
 	}
 
-    private void logProgressReport(Log log, ExecReport er, int waitRound, List<FutureExecution> executionsToDoFlight, List<Execution> executionsInFlight) {
-	    if(waitRound == 0) {
-            log.info(colorize(
-                    "\t@|bg_black,bold,cyan status legend|@(" +
-                            "@|bold,underline TotalExecutionsAtemps done|@(" +
-                            "@|" + ExecReport.COLOR_SUCCESS + " success|@/" +
-                            "@|" + ExecReport.COLOR_FAILURE + " failures|@/" +
-                            "@|" + ExecReport.COLOR_EXECERR + " execErrs|@/" +
-                            "@|" + ExecReport.COLOR_TIMEOUT + " timeouts|@), " +
-                            "@|bold XX waiting|@, " +
-                            "@|italic,underline XX inProcess|@)."
-            ));
-        }
-        log.info(colorize(
-                "\t@|bg_black,bold,cyan status|@(" +
-                        "@|bold,underline " + er.getTotalExecutionsAtemps() + " done|@(" +
-                        "@|" + ExecReport.COLOR_SUCCESS + " " + er.getNbOfSuccess() + "|@/" +
-                        "@|" + ExecReport.COLOR_FAILURE + " " + er.getNbOfTestFailures() + "|@/" +
-                        "@|" + ExecReport.COLOR_EXECERR + " " + er.getNbOfExecErrors() +"|@/" +
-                        "@|" + ExecReport.COLOR_TIMEOUT + " " + er.getNbOfTimeouts() +"|@), " +
-                        "@|bold " + executionsToDoFlight.size() + " waiting|@, " +
-                        "@|italic,underline " + executionsInFlight.size() + " inProcess|@) " +
-                        "I have waited about " + (waitRound * 5) + " seconds for reports till now. Going to wait another 5 seconds."
-        ));
-    }
-
-	private void logSummaryReport(Log log, ExecReport execReport) {
-		String headlineColor = "red";
-		if(execReport.isWithoutNegativeResults()) {
-			headlineColor = "green";
-		} else {
-			log.warn("There was some negative test results (" + execReport.getNbOfAllNegativeResults() + ")! See info report bellow for summary or have a look at log or test report file.");
-		}
-		log.info(colorize(
-				"@|bold," + headlineColor + " SUMMARY REPORT|@\n" +
-						"\t@|" + ExecReport.COLOR_SUCCESS + " " +
-						"recordSuccess|@ : @|bold " + execReport.getNbOfSuccess() + "|@\t (number of test executions with successful execution and asserts)\n" +
-						"\t@|" + ExecReport.COLOR_FAILURE + " " +
-						"failure|@ : @|bold " + execReport.getNbOfTestFailures() + "|@\t (number of tests with report with some failure. Failed on test asserts or failure during test execution)\n" +
-						"\t@|" + ExecReport.COLOR_EXECERR + " " +
-						"exec err|@: @|bold " + execReport.getNbOfExecErrors() + "|@\t (number of executions failed. It counts executions of nonexistent tests, problems with authentication to jamo during test executions and so on)\n" +
-						"\t@|" + ExecReport.COLOR_TIMEOUT + " " +
-						"recordTimeout|@ : @|bold " + execReport.getNbOfTimeouts() + "|@\t (report not found within recordTimeout after test execution started)\n" +
-						"@|bold " +
-						"total|@   : @|bold " + execReport.getTotalExecutionsAtemps() + "|@"
-		));
-	}
-
 	/**
 	 * Get AND remove any future execution instance for given device.
 	 */
@@ -343,7 +288,7 @@ public class JamoAutomatorMojo extends AbstractMojo {
 		// futureExecutions.stream().filter(e -> e.device.equals(device)).findAny();
 		for(Iterator<FutureExecution> futureExecutionsIterator = futureExecutions.iterator(); futureExecutionsIterator.hasNext();) {
 			FutureExecution fe = futureExecutionsIterator.next();
-			if(fe.device.equals(device)) {
+			if(fe.getDevice().equals(device)) {
 				futureExecutionsIterator.remove();
 				return Optional.of(fe);
 			}
@@ -446,197 +391,8 @@ public class JamoAutomatorMojo extends AbstractMojo {
 		);
 	}
 
-	private static class UserKeyAndToken {
-		public final String userKey;
-		public final String authToken;
-		private UserKeyAndToken(String userKey, String authToken) {
-			this.userKey = userKey;
-			this.authToken = authToken;
-		}
-	}
-
 	private static List<HttpMessageConverter<?>> getMessageConverters() {
 		List<HttpMessageConverter<?>> converters = new ArrayList<HttpMessageConverter<?>>();
 		converters.add(new MappingJackson2HttpMessageConverter());
 		return converters;
-	}
-
-    private class FutureExecution {
-        protected Device device;
-        protected TestCase testCase;
-
-        public FutureExecution(Device device, TestCase testCase) {
-            this.device = device;
-            this.testCase = testCase;
-        }
-
-        public Device getDevice() {
-            return device;
-        }
-
-        public TestCase getTestCase() {
-            return testCase;
-        }
-
-        public void setDevice(Device device) {
-            this.device = device;
-        }
-
-        public void setTestCase(TestCase testCase) {
-            this.testCase = testCase;
-        }
-    }
-
-    private class Execution extends FutureExecution {
-        private String executionId;
-		private long startTimeMillis;
-
-		public Execution(String executionId, Device device, TestCase testCase) {
-            super(device, testCase);
-            this.executionId = executionId;
-            this.startTimeMillis = System.currentTimeMillis();
-        }
-
-        public String getExecutionId() {
-            return executionId;
-        }
-
-        public void setExecutionId(String executionId) {
-            this.executionId = executionId;
-        }
-
-		public long getStartTimeMillis() {
-			return this.startTimeMillis;
-		}
-	}
-
-	/**
-	 * Simple "counter holder" class. You should report all tests to it using one of four methods (according result of test).
-	 * <ul>
-	 *     <li>{@link #recordSuccess(Execution, Report)}</li>
-	 *     <li>{@link #recordTimeout(Execution, long)}</li>
-	 *     <li>{@link #recordExecError(Device, TestCase, ResponseStringWrapper)}</li>
-	 *     <li>{@link #recordTestFailure(Execution, Report, String)}</li>
-	 * </ul>
-	 */
-	private class ExecReport {
-		public static final String COLOR_SUCCESS = "green,bold";
-		public static final String COLOR_TIMEOUT = "faint,underline,red,bold";
-		public static final String COLOR_EXECERR = "yellow,bold";
-		public static final String COLOR_FAILURE = "red,bold";
-
-		private final Log log;
-
-		private int nbOfTimeouts = 0;
-		private int nbOfExecErrors = 0;
-		private int nbOfTestFailures = 0;
-		private int nbOfSuccess = 0;
-
-		public ExecReport(Log log) {
-			this.log = log;
-		}
-
-		public void recordSuccess(Execution execution, Report report) {
-			log.info(colorize(
-					"@|" + COLOR_SUCCESS + " Success|@ test (" + device(execution.getDevice()) + ";" + testCase(execution.getTestCase()) + ")"
-			));
-			log.debug(
-                    "Success debug info:\n" +
-                            "executeRequestFinishedAt(our): " + new Date(execution.startTimeMillis) + "\n" +
-                            "currentTime(our): " + new Date() + "\n" +
-                            "report.getCreationDate: " + report.getCreationDate() + "\n" +
-                            "report.getEndDate: " + report.getEndDate() + "\n" +
-                            "report.getBuildNumber: " + report.getBuildNumber() + "\n" +
-                            "report.getKeyString: " + report.getKeyString() + "\n" +
-                            "report.getExecutionId: " + report.getExecutionId()
-            );
-            this.nbOfSuccess++;
-		}
-
-		public void recordTimeout(Execution execution, long durationTillNowMs) {
-			log.warn(colorize(
-					"@|" + COLOR_TIMEOUT + " Timeout test execution|@ test (" + device(execution.getDevice()) + ";" + testCase(execution.getTestCase()) + ")"
-			));
-            log.debug(
-                    "Timeout debug info:\n" +
-                            "executeRequestFinishedAt(our): " + new Date(execution.startTimeMillis) + "\n" +
-                            "currentTime(our): " + new Date() + "\n" +
-                            "execution.getExecutionId: " + execution.getExecutionId() + "\n" +
-                            "durationTillNowMs(calculated): " + durationTillNowMs + "\n" +
-                            "execution.getTestCase().getTimeout(): " + execution.getTestCase().getTimeout() + " -> " + (60 * 1000 * execution.getTestCase().getTimeout()) + "\n"
-            );
-			nbOfTimeouts++;
-		}
-
-		public void recordExecError(Device device, TestCase testCase, ResponseStringWrapper response) {
-			log.warn(colorize(
-					"@|" + COLOR_EXECERR + " error while executing|@ test (" + device(device) + ";" + testCase(testCase) + ")"
-			));
-            log.debug(
-                    "executing error debug info:\n" +
-                            "currentTime(our): " + new Date() + "\n" +
-                            "response:" + response
-            );
-			this.nbOfExecErrors++;
-		}
-
-		public void recordTestFailure(Execution execution, Report report, String linkToReport) {
-			log.warn(colorize(
-					"@|" + COLOR_FAILURE + " Failure test execution|@ test (" + device(execution.getDevice()) + ";" + testCase(execution.getTestCase()) + "+ reportLink: " + linkToReport +" )"
-			));
-            log.debug(
-                    "Failure test debug info:\n" +
-                            "executeRequestFinishedAt(our): " + new Date(execution.startTimeMillis) + "\n" +
-                            "currentTime(our): " + new Date() + "\n" +
-                            "report.getCreationDate: " + report.getCreationDate() + "\n" +
-                            "report.getEndDate: " + report.getEndDate() + "\n" +
-                            "report.getBuildNumber: " + report.getBuildNumber() + "\n" +
-                            "report.getKeyString: " + report.getKeyString() + "\n" +
-                            "report.getExecutionId: " + report.getExecutionId() + "\n" +
-                            "report.getStatus: " + report.getStatus() + "\n" +
-                            "linkToReport: " + linkToReport
-            );
-			this.nbOfTestFailures++;
-		}
-
-		public int getNbOfExecErrors() {
-			return nbOfExecErrors;
-		}
-
-		public int getNbOfSuccess() {
-			return nbOfSuccess;
-		}
-
-		public int getNbOfTestFailures() {
-			return nbOfTestFailures;
-		}
-
-		public int getNbOfTimeouts() {
-			return nbOfTimeouts;
-		}
-
-		public boolean isWithoutNegativeResults() {
-			return this.nbOfExecErrors == 0 && this.nbOfExecErrors == 0 && this.nbOfTestFailures == 0;
-		}
-
-		/**
-		 * Sums all executions (successfull or not). It returns sum of all four internal counters.
-		 *
-		 * @return number of tests in executed suite. it counts also things like non-existent reports (which does not executed)
-		 */
-		public int getTotalExecutionsAtemps() {
-			return this.nbOfSuccess + this.nbOfTestFailures + this.nbOfExecErrors + this.nbOfTimeouts;
-		}
-
-		/**
-		 * @return sum of execution errors (nonexistent test,...) and test timeouts (no report found within time)
-		 */
-		public int getNbOfErrors() {
-			return this.nbOfExecErrors + this.nbOfTimeouts;
-		}
-
-		public int getNbOfAllNegativeResults() {
-			return this.nbOfExecErrors + this.nbOfTimeouts + this.nbOfTestFailures;
-		}
-	}
-}
+	}}
