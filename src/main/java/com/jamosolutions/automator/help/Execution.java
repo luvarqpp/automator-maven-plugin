@@ -6,10 +6,12 @@ import com.jamosolutions.automator.domain.TestCase;
 public class Execution extends FutureExecution {
     private String executionId;
     private long startTimeMillis;
+    private long requestStartTime;
 
-    public Execution(String executionId, Device device, TestCase testCase) {
+    public Execution(String executionId, Device device, TestCase testCase, long requestStartTime) {
         super(device, testCase);
         this.executionId = executionId;
+        this.requestStartTime = requestStartTime;
         this.startTimeMillis = System.currentTimeMillis();
     }
 
@@ -23,5 +25,9 @@ public class Execution extends FutureExecution {
 
     public long getStartTimeMillis() {
         return this.startTimeMillis;
+    }
+
+    public long getRequestStartTime() {
+        return requestStartTime;
     }
 }

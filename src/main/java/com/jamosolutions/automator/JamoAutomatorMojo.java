@@ -208,16 +208,16 @@ public class JamoAutomatorMojo extends AbstractMojo {
                 idleDevices.removeAll(devicesWithSingleExecutionOnIt);
 
                 for (Device idleDevice: idleDevices) {
-                	long requestStartTime = System.currentTimeMillis();
                     Optional<FutureExecution> newTest = popAnotherTestForDevice(executionsToDoFlight, idleDevice);
                     if(newTest.isPresent()) {
                         FutureExecution needToExecute = newTest.get();
                         log.info(colorize("Device " + device(idleDevice) + " have no awaiting report for now, going to execute " + testCase(needToExecute.getTestCase()) + " on it."));
                         // request test execution
                         final TestCase testCaseToExecute = needToExecute.getTestCase();
+						final long requestStartTime = System.currentTimeMillis();
                         ResponseStringWrapper response = runTestCase(idleDevice, testCaseToExecute, loginResult, testSuite.getUrl(), log);
                         if (response.isSuccess()) {
-                            executionsInFlight.add(new Execution(response.getMessage(), idleDevice, testCaseToExecute));
+                            executionsInFlight.add(new Execution(response.getMessage(), idleDevice, testCaseToExecute, requestStartTime));
                         } else {
                             er.recordExecError(idleDevice, testCaseToExecute, response, requestStartTime);
                             Element testcaseElement = doc.createElement("testcase");

@@ -43,7 +43,7 @@ public class ExecReport {
         ));
         log.debug(
                 "Success debug info:\n" +
-                        "wallDuration(our): " + (System.currentTimeMillis() - execution.getStartTimeMillis()) + "\n" +
+                        "wallDuration(our): " + (System.currentTimeMillis() - execution.getRequestStartTime()) + "\n" +
                         "executeRequestFinishedAt(our): " + new Date(execution.getStartTimeMillis()) + "\n" +
                         "currentTime(our): " + new Date() + "\n" +
                         "report.getCreationDate: " + report.getCreationDate() + "\n" +
@@ -61,7 +61,7 @@ public class ExecReport {
         ));
         log.debug(
                 "Timeout debug info:\n" +
-                        "wallDuration(our): " + (System.currentTimeMillis() - execution.getStartTimeMillis()) + "\n" +
+                        "wallDuration(our): " + (System.currentTimeMillis() - execution.getRequestStartTime()) + "\n" +
                         "executeRequestFinishedAt(our): " + new Date(execution.getStartTimeMillis()) + "\n" +
                         "currentTime(our): " + new Date() + "\n" +
                         "execution.getExecutionId: " + execution.getExecutionId() + "\n" +
@@ -77,7 +77,6 @@ public class ExecReport {
         ));
         log.debug(
                 "executing error debug info:\n" +
-                        // TODO here is disproportion, because counting also request time to jamo and back, despite it is not included in other wallDurations!
                         "wallDuration(our): " + (System.currentTimeMillis() - requestStartTime) + "\n" +
                         "requestStartTime(our): " + requestStartTime + "\n" +
                         "currentTime(our): " + new Date() + "\n" +
@@ -92,7 +91,7 @@ public class ExecReport {
         ));
         log.debug(
                 "Failure test debug info:\n" +
-                        "wallDuration(our): " + (System.currentTimeMillis() - execution.getStartTimeMillis()) + "\n" +
+                        "wallDuration(our): " + (System.currentTimeMillis() - execution.getRequestStartTime()) + "\n" +
                         "executeRequestFinishedAt(our): " + new Date(execution.getStartTimeMillis()) + "\n" +
                         "currentTime(our): " + new Date() + "\n" +
                         "report.getCreationDate: " + report.getCreationDate() + "\n" +
