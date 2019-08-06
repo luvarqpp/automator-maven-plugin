@@ -1,5 +1,7 @@
 package com.jamosolutions.automator.domain;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 import javax.xml.bind.annotation.XmlAttribute;
@@ -30,6 +32,9 @@ public class Device {
 
 	@XmlElement(name = "testcase")
 	public List<TestCase> getTestCases() {
+		if(null == testCases) {
+			testCases = new ArrayList<>(16);
+		}
 		return testCases;
 	}
 
