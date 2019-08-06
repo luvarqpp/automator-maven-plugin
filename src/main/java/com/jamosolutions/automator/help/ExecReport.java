@@ -184,13 +184,13 @@ public class ExecReport {
                         "\t@|" + ExecReport.COLOR_SUCCESS + " " +
                         "recordSuccess|@ : @|bold " + this.getNbOfSuccess() + "|@\t (number of test executions with successful execution and asserts)\n" +
                         "\t@|" + ExecReport.COLOR_FAILURE + " " +
-                        "failure|@ : @|bold " + this.getNbOfTestFailures() + "|@\t (number of tests with report with some failure. Failed on test asserts or failure during test execution)\n" +
+                        "failure|@ : \t\t@|bold " + this.getNbOfTestFailures() + "|@\t (number of tests with report with some failure. Failed on test asserts or failure during test execution)\n" +
                         "\t@|" + ExecReport.COLOR_EXECERR + " " +
-                        "exec err|@: @|bold " + this.getNbOfExecErrors() + "|@\t (number of executions failed. It counts executions of nonexistent tests, problems with authentication to jamo during test executions and so on)\n" +
+                        "exec err|@: \t\t@|bold " + this.getNbOfExecErrors() + "|@\t (number of executions failed. It counts executions of nonexistent tests, problems with authentication to jamo during test executions and so on)\n" +
                         "\t@|" + ExecReport.COLOR_TIMEOUT + " " +
                         "recordTimeout|@ : @|bold " + this.getNbOfTimeouts() + "|@\t (report not found within recordTimeout after test execution started)\n" +
-                        "@|bold " +
-                        "total|@   : @|bold " + this.getTotalExecutionsAtemps() + "|@"
+                        "\t@|bold " +
+                        "total|@ : \t\t@|bold " + this.getTotalExecutionsAtemps() + "|@\t (just sum of previous numbers)"
         ));
     }
 }
