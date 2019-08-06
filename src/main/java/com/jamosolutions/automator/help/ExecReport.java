@@ -73,7 +73,8 @@ public class ExecReport {
 
     public void recordExecError(Device device, TestCase testCase, ResponseStringWrapper response, long requestStartTime) {
         log.warn(colorize(
-                "@|" + COLOR_EXECERR + " error while executing|@ test (" + device(device) + ";" + testCase(testCase) + ")"
+                "@|" + COLOR_EXECERR + " error while executing|@ test (" + device(device) + ";" + testCase(testCase) + "), " +
+                        "message: @|" + COLOR_EXECERR + " " + response.getMessage() + "|@"
         ));
         log.debug(
                 "executing error debug info:\n" +
