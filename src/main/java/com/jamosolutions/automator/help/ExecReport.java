@@ -41,9 +41,10 @@ public class ExecReport {
         log.info(colorize(
                 "@|" + COLOR_SUCCESS + " Success|@ test (" + device(execution.getDevice()) + ";" + testCase(execution.getTestCase()) + ")"
         ));
+        final long wallDurationMs = System.currentTimeMillis() - execution.getRequestStartTime();
         log.debug(
                 "Success debug info:\n" +
-                        "wallDuration(our): " + (System.currentTimeMillis() - execution.getRequestStartTime()) + "\n" +
+                        "wallDuration(our): " + wallDurationMs + "\n" +
                         "executeRequestFinishedAt(our): " + new Date(execution.getStartTimeMillis()) + "\n" +
                         "currentTime(our): " + new Date() + "\n" +
                         "report.getCreationDate: " + report.getCreationDate() + "\n" +
@@ -52,6 +53,14 @@ public class ExecReport {
                         "report.getKeyString: " + report.getKeyString() + "\n" +
                         "report.getExecutionId: " + report.getExecutionId()
         );
+        if(wallDurationMs * 3 < (execution.getTestCase().getTimeout() * 60 * 1000)) {
+            log.info(colorize(
+                    "@|yellow,bold Consider lowering timeout for testcase.|@ Test has successfully finished under less than third of its timeout time. " +
+                            testCase(execution.getTestCase()) + ", " +
+                            "timeout: @|bold " + (execution.getTestCase().getTimeout() * 60 * 1000) + "|@ milliseconds, " +
+                            "actual duration: @|bold " + (wallDurationMs) + "|@ milliseconds. (Note, that timeout in configuration is in minutes.)"
+            ));
+        }
         this.nbOfSuccess++;
     }
 
@@ -88,7 +97,8 @@ public class ExecReport {
 
     public void recordTestFailure(Execution execution, Report report, String linkToReport) {
         log.warn(colorize(
-                "@|" + COLOR_FAILURE + " Failure test execution|@ test (" + device(execution.getDevice()) + ";" + testCase(execution.getTestCase()) + "+ reportLink: " + linkToReport + " )"
+                "@|" + COLOR_FAILURE + " Failure test execution|@ test (" + device(execution.getDevice()) + ";" + testCase(execution.getTestCase()) + "), " +
+                        "reportLink: " + linkToReport
         ));
         log.debug(
                 "Failure test debug info:\n" +
@@ -184,13 +194,13 @@ public class ExecReport {
                         "\t@|" + ExecReport.COLOR_SUCCESS + " " +
                         "recordSuccess|@ : @|bold " + this.getNbOfSuccess() + "|@\t (number of test executions with successful execution and asserts)\n" +
                         "\t@|" + ExecReport.COLOR_FAILURE + " " +
-                        "failure|@ : \t\t@|bold " + this.getNbOfTestFailures() + "|@\t (number of tests with report with some failure. Failed on test asserts or failure during test execution)\n" +
+                        "failure|@ : \t@|bold " + this.getNbOfTestFailures() + "|@\t (number of tests with report with some failure. Failed on test asserts or failure during test execution)\n" +
                         "\t@|" + ExecReport.COLOR_EXECERR + " " +
-                        "exec err|@: \t\t@|bold " + this.getNbOfExecErrors() + "|@\t (number of executions failed. It counts executions of nonexistent tests, problems with authentication to jamo during test executions and so on)\n" +
+                        "exec err|@: \t@|bold " + this.getNbOfExecErrors() + "|@\t (number of executions failed. It counts executions of nonexistent tests, problems with authentication to jamo during test executions and so on)\n" +
                         "\t@|" + ExecReport.COLOR_TIMEOUT + " " +
                         "recordTimeout|@ : @|bold " + this.getNbOfTimeouts() + "|@\t (report not found within recordTimeout after test execution started)\n" +
                         "\t@|bold " +
-                        "total|@ : \t\t@|bold " + this.getTotalExecutionsAtemps() + "|@\t (just sum of previous numbers)"
+                        "total|@ : \t@|bold " + this.getTotalExecutionsAtemps() + "|@\t (just sum of previous numbers)"
         ));
     }
 }
