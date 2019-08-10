@@ -12,6 +12,7 @@ import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
 import javax.xml.transform.Transformer;
+import javax.xml.transform.TransformerConfigurationException;
 import javax.xml.transform.TransformerException;
 import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.dom.DOMSource;
@@ -110,22 +111,29 @@ public class JamoAutomatorMojo extends AbstractMojo {
             );
             return;
         }
+		DocumentBuilderFactory docFactory = DocumentBuilderFactory.newInstance();
+		DocumentBuilder docBuilder = null;
+		try {
+			docBuilder = docFactory.newDocumentBuilder();
+		} catch (ParserConfigurationException e) {
+			log.error("could not build junit xml document", e);
+			throw new RuntimeException("Unexpected error = " + e.getMessage(), e);
+		}
+		Document doc = docBuilder.newDocument();
+		Element testsuiteElement = doc.createElement("testsuite");
+		doc.appendChild(testsuiteElement);
         ExecReport er = new ExecReport(log);
-        try {
-			long startMillis = System.currentTimeMillis();
+		long startMillis = System.currentTimeMillis();
+		String testSuiteName = "";
+		try {
             //parse the testsuite file
             JAXBContext jaxbContext = JAXBContext.newInstance(TestSuite.class);
             Unmarshaller jaxbUnmarshaller = jaxbContext.createUnmarshaller();
             TestSuite testSuite = (TestSuite) jaxbUnmarshaller.unmarshal(testSuiteFile);
             //build the xml test suite document
             //http://help.catchsoftware.com/display/ET/JUnit+Format
-            File reportFile = new File(getReportDirectory(baseDir).getAbsolutePath(), "TEST-com.jamoautomator." + testSuite.getName() + ".xml");
-            DocumentBuilderFactory docFactory = DocumentBuilderFactory.newInstance();
-            DocumentBuilder docBuilder = docFactory.newDocumentBuilder();
-            Document doc = docBuilder.newDocument();
-            Element testsuiteElement = doc.createElement("testsuite");
-            doc.appendChild(testsuiteElement);
-            testsuiteElement.setAttribute("name", testSuite.getName());
+			testSuiteName = testSuite.getName();
+			testsuiteElement.setAttribute("name", testSuiteName);
             UserKeyAndToken loginResult = login(testSuite.getCredentials(), testSuite.getUrl());
 
             List<FutureExecution> executionsToDoFlight = new ArrayList<>();
@@ -245,27 +253,35 @@ public class JamoAutomatorMojo extends AbstractMojo {
                 Thread.sleep(5000);
                 waitRound++;
             } // end of while there is executing, or to be executed.
-            er.logSummaryReport();
-
-            testsuiteElement.setAttribute("errors", "" + er.getNbOfErrors());
-            testsuiteElement.setAttribute("failures", "" + er.getNbOfTestFailures());
-            long totalDuration = (System.currentTimeMillis() - startMillis) / 1000;
-            log.info("Wall time of running reports is " + totalDuration + " seconds.");
-            testsuiteElement.setAttribute("time", "" + totalDuration);
-            TransformerFactory transformerFactory = TransformerFactory.newInstance();
-            Transformer transformer = transformerFactory.newTransformer();
-            DOMSource source = new DOMSource(doc);
-            StreamResult result = new StreamResult(reportFile);
-            transformer.transform(source, result);
         } catch (JAXBException e) {
             log.error("could not parse the descriptor file " + descriptor, e);
-        } catch (ParserConfigurationException e1) {
-            log.error("could not build junit xml document", e1);
-        } catch (TransformerException e) {
-            log.error("could not build junit xml document", e);
         } catch (InterruptedException e) {
             log.info("the test suite has been interrupted", e);
-        }
+        } finally {
+			er.logSummaryReport();
+			testsuiteElement.setAttribute("errors", "" + er.getNbOfErrors());
+			testsuiteElement.setAttribute("failures", "" + er.getNbOfTestFailures());
+			long totalDuration = (System.currentTimeMillis() - startMillis) / 1000;
+			log.info("Wall time of running reports is " + totalDuration + " seconds.");
+			testsuiteElement.setAttribute("time", "" + totalDuration);
+			TransformerFactory transformerFactory = TransformerFactory.newInstance();
+			Transformer transformer = null;
+			try {
+				transformer = transformerFactory.newTransformer();
+			} catch (TransformerConfigurationException e) {
+				log.error("could not build junit xml document", e);
+				throw new RuntimeException("Unexpected exception " + e.getMessage(), e);
+			}
+			DOMSource source = new DOMSource(doc);
+			File reportFile = new File(getReportDirectory(baseDir).getAbsolutePath(), "TEST-com.jamoautomator." + testSuiteName + ".xml");
+			StreamResult result = new StreamResult(reportFile);
+			try {
+				transformer.transform(source, result);
+			} catch (TransformerException e) {
+				log.error("could not build junit xml document", e);
+				throw new RuntimeException("Unexpected exception " + e.getMessage(), e);
+			}
+		}
 	}
 
 	/**
