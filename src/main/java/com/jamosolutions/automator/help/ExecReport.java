@@ -47,6 +47,8 @@ public class ExecReport {
                         "wallDuration(our): " + wallDurationMs + "\n" +
                         "executeRequestFinishedAt(our): " + new Date(execution.getStartTimeMillis()) + "\n" +
                         "currentTime(our): " + new Date() + "\n" +
+                        "execution.getExecutionId: " + execution.getExecutionId() + "\n" +
+                        "getErrorsWhileGettingReport: " + execution.getErrorsWhileGettingReport() + "\n" +
                         "report.getCreationDate: " + report.getCreationDate() + "\n" +
                         "report.getEndDate: " + report.getEndDate() + "\n" +
                         "report.getBuildNumber: " + report.getBuildNumber() + "\n" +
@@ -74,6 +76,7 @@ public class ExecReport {
                         "executeRequestFinishedAt(our): " + new Date(execution.getStartTimeMillis()) + "\n" +
                         "currentTime(our): " + new Date() + "\n" +
                         "execution.getExecutionId: " + execution.getExecutionId() + "\n" +
+                        "getErrorsWhileGettingReport: " + execution.getErrorsWhileGettingReport() + "\n" +
                         "durationTillNowMs(calculated): " + durationTillNowMs + "\n" +
                         "execution.getTestCase().getTimeout(): " + execution.getTestCase().getTimeout() + " -> " + (60 * 1000 * execution.getTestCase().getTimeout()) + "\n"
         );
@@ -105,6 +108,8 @@ public class ExecReport {
                         "wallDuration(our): " + (System.currentTimeMillis() - execution.getRequestStartTime()) + "\n" +
                         "executeRequestFinishedAt(our): " + new Date(execution.getStartTimeMillis()) + "\n" +
                         "currentTime(our): " + new Date() + "\n" +
+                        "execution.getExecutionId: " + execution.getExecutionId() + "\n" +
+                        "getErrorsWhileGettingReport: " + execution.getErrorsWhileGettingReport() + "\n" +
                         "report.getCreationDate: " + report.getCreationDate() + "\n" +
                         "report.getEndDate: " + report.getEndDate() + "\n" +
                         "report.getBuildNumber: " + report.getBuildNumber() + "\n" +

@@ -154,6 +154,74 @@ public class JamoAutomatorMojo extends AbstractMojo {
 
                 for (Iterator<Execution> iterator = executionsInFlight.iterator(); iterator.hasNext();) {
                     Execution execution = iterator.next();
+                    // lock of code for checking report availability
+					{
+						Report report;
+						try {
+							report = getReport(execution.getExecutionId(), loginResult.authToken, testSuite.getUrl());
+						} catch(Exception ex) {
+							logDebugForDevice(
+									log,
+									execution.getDevice(),
+									colorize(
+											"Device " + device(execution.getDevice()) + " have still running test " +
+													"@|blue " + execution.getTestCase() + "|@ on it (no report found with id " +
+													"@|blue " + execution.getExecutionId() + "|@). Going to wait."
+
+									)
+							);
+							execution.errorGettingReport(ex);
+							final int errorsWhileGettingReport = execution.getErrorsWhileGettingReport();
+							if(errorsWhileGettingReport >= 5) {
+								throw new RuntimeException("Error while getting report has occurred " + errorsWhileGettingReport + " times!", ex);
+							}
+							if(errorsWhileGettingReport >= 3) {
+								log.warn(colorize(
+										"There were @|bold,red " + errorsWhileGettingReport + "|@ " +
+												"errors while getting report from jamo. @|bold,yellow Going to suspend all activities for 7 minutes!|@"
+								));
+								Thread.sleep(7 * 60 * 1000);
+							}
+							continue;
+						}
+						if (report != null) {
+							Element testcaseElement = doc.createElement("testcase");
+							long durationFromReportMs = report.getEndDate().getTime() - report.getCreationDate().getTime();
+							testcaseElement.setAttribute("time", "" + (durationFromReportMs/ 1000));
+							testcaseElement.setAttribute("name", execution.getTestCase().getName());
+							testcaseElement.setAttribute("classname", "com.jamosolutions." + testSuite.getName() + "." + execution.getDevice().getName());
+							if (report.getStatus() != 0) {
+								final String linkToReport = testSuite.getUrl() + "/index.html?reportDetail=" + report.getKeyString();
+								er.recordTestFailure(execution, report, linkToReport);
+								Element failureElement = doc.createElement("failure");
+								failureElement.setAttribute("message", "The test case did not succeed.");
+								Text errorMessageDetail = doc.createTextNode("For more detail click " + linkToReport);
+								failureElement.appendChild(errorMessageDetail);
+								testcaseElement.appendChild(failureElement);
+							} else {
+								Element systemoutElement = doc.createElement("system-out");
+								Text okMessageDetail = doc.createTextNode("For more detail click " + testSuite.getUrl() + "/index.html?reportDetail="
+										+ report.getKeyString());
+								systemoutElement.appendChild(okMessageDetail);
+								testcaseElement.appendChild(systemoutElement);
+								er.recordSuccess(execution, report);
+							}
+							testsuiteElement.appendChild(testcaseElement);
+							iterator.remove();
+						} else {
+							logDebugForDevice(
+									log,
+									execution.getDevice(),
+									colorize(
+											"Device " + device(execution.getDevice()) + " have still running test " +
+													"@|blue " + execution.getTestCase() + "|@ on it (no report found with id " +
+													"@|blue " + execution.getExecutionId() + "|@). Going to wait."
+
+									)
+							);
+							devicesWithSingleExecutionOnIt.add(execution.getDevice());
+						}
+					}
                     long durationTillNowMs = (System.currentTimeMillis() - execution.getStartTimeMillis());
                     if (durationTillNowMs > execution.getTestCase().getTimeout() * 60 * 1000) {
                         iterator.remove();
@@ -170,45 +238,6 @@ public class JamoAutomatorMojo extends AbstractMojo {
                         );
                         testcaseElement.appendChild(errorElement);
                         testsuiteElement.appendChild(testcaseElement);
-                    } else {
-                        Report report = getReport(execution.getExecutionId(), loginResult.authToken, testSuite.getUrl());
-                        if (report != null) {
-                            Element testcaseElement = doc.createElement("testcase");
-                            long durationFromReportMs = report.getEndDate().getTime() - report.getCreationDate().getTime();
-                            testcaseElement.setAttribute("time", "" + (durationFromReportMs/ 1000));
-                            testcaseElement.setAttribute("name", execution.getTestCase().getName());
-                            testcaseElement.setAttribute("classname", "com.jamosolutions." + testSuite.getName() + "." + execution.getDevice().getName());
-                            if (report.getStatus() != 0) {
-                                final String linkToReport = testSuite.getUrl() + "/index.html?reportDetail=" + report.getKeyString();
-                                er.recordTestFailure(execution, report, linkToReport);
-                                Element failureElement = doc.createElement("failure");
-                                failureElement.setAttribute("message", "The test case did not succeed.");
-                                Text errorMessageDetail = doc.createTextNode("For more detail click " + linkToReport);
-                                failureElement.appendChild(errorMessageDetail);
-                                testcaseElement.appendChild(failureElement);
-                            } else {
-                                Element systemoutElement = doc.createElement("system-out");
-                                Text okMessageDetail = doc.createTextNode("For more detail click " + testSuite.getUrl() + "/index.html?reportDetail="
-                                        + report.getKeyString());
-                                systemoutElement.appendChild(okMessageDetail);
-                                testcaseElement.appendChild(systemoutElement);
-                                er.recordSuccess(execution, report);
-                            }
-                            testsuiteElement.appendChild(testcaseElement);
-                            iterator.remove();
-                        } else {
-							logDebugForDevice(
-									log,
-									execution.getDevice(),
-									colorize(
-											"Device " + device(execution.getDevice()) + " have still running test " +
-													"@|blue " + execution.getTestCase() + "|@ on it (no report found with id " +
-													"@|blue " + execution.getExecutionId() + "|@). Going to wait."
-
-									)
-							);
-							devicesWithSingleExecutionOnIt.add(execution.getDevice());
-                        }
                     }
                 } // end of for iterator through executionsInFlight
 

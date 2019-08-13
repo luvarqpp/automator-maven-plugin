@@ -7,6 +7,7 @@ public class Execution extends FutureExecution {
     private String executionId;
     private long startTimeMillis;
     private long requestStartTime;
+    private int errorsWhileGettingReport = 0;
 
     public Execution(String executionId, Device device, TestCase testCase, long requestStartTime) {
         super(device, testCase);
@@ -29,5 +30,13 @@ public class Execution extends FutureExecution {
 
     public long getRequestStartTime() {
         return requestStartTime;
+    }
+
+    public void errorGettingReport(Exception ex) {
+        this.errorsWhileGettingReport++;
+    }
+
+    public int getErrorsWhileGettingReport() {
+        return this.errorsWhileGettingReport;
     }
 }
