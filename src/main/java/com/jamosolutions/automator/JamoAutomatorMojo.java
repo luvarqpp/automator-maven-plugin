@@ -72,6 +72,7 @@ public class JamoAutomatorMojo extends AbstractMojo {
 	 * @see #logDebugForDevice(Log, Device, String)
 	 */
 	private final Map<Device, String> lastDebugLogPerDevice = new HashMap<>();
+	private final Map<Device, String> lastInfoLogPerDevice = new HashMap<>();
 
 	protected File getReportDirectory(File baseDirAbsolutePath) {
 		File reportFolder = new File(baseDirAbsolutePath, "target/surefire-reports");
@@ -252,7 +253,22 @@ public class JamoAutomatorMojo extends AbstractMojo {
                         // request test execution
                         final TestCase testCaseToExecute = needToExecute.getTestCase();
 						final long requestStartTime = System.currentTimeMillis();
-                        ResponseStringWrapper response = runTestCase(idleDevice, testCaseToExecute, loginResult, testSuite.getUrl(), log);
+                        ResponseStringWrapper response;
+                        try {
+                        	response = runTestCase(idleDevice, testCaseToExecute, loginResult, testSuite.getUrl(), log);
+						} catch(Exception ex) {
+                            // TODO count errors in needToExecute and stop it after some number of exceptions.
+							logInfoForDevice(
+									log,
+									needToExecute.getDevice(),
+									colorize(
+											"Failed to execute test case on device " + device(needToExecute.getDevice()) + ", test case " +
+													"@|blue " + needToExecute.getTestCase() + "|@. Going to try next round."
+
+									)
+							);
+							continue;
+						}
                         if (response.isSuccess()) {
                             executionsInFlight.add(new Execution(response.getMessage(), idleDevice, testCaseToExecute, requestStartTime));
                         } else {
@@ -323,6 +339,13 @@ public class JamoAutomatorMojo extends AbstractMojo {
 		if(!Objects.equals(lastLog, message)) {
 			lastDebugLogPerDevice.put(device, message);
 			log.debug(message);
+		}
+	}
+	private void logInfoForDevice(Log log, Device device, String message) {
+		String lastLog = lastInfoLogPerDevice.get(device);
+		if(!Objects.equals(lastLog, message)) {
+			lastInfoLogPerDevice.put(device, message);
+			log.info(message);
 		}
 	}
 
