@@ -209,6 +209,7 @@ public class JamoAutomatorMojo extends AbstractMojo {
 							}
 							testsuiteElement.appendChild(testcaseElement);
 							iterator.remove();
+							continue;
 						} else {
 							logDebugForDevice(
 									log,
