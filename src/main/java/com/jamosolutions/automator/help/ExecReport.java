@@ -41,7 +41,8 @@ public class ExecReport {
         log.info(colorize(
                 "@|" + COLOR_SUCCESS + " Success|@ test (" + device(execution.getDevice()) + ";" + testCase(execution.getTestCase()) + ")"
         ));
-        final long wallDurationMs = System.currentTimeMillis() - execution.getRequestStartTime();
+        final long now = System.currentTimeMillis();
+        final long wallDurationMs = now - execution.getRequestStartTime();
         log.debug(
                 "Success debug info:\n" +
                         "wallDuration(our): " + wallDurationMs + "\n" +
@@ -63,6 +64,7 @@ public class ExecReport {
                             "actual duration: @|bold " + (wallDurationMs) + "|@ milliseconds. (Note, that timeout in configuration is in minutes.)"
             ));
         }
+        log.debug("OGRGEĽ;" + execution.getDevice().getName() + ";" + execution.getTestCase().getName() + ";" + "success" + ";" + now + ";" + execution.getRequestStartTime() + ";" + execution.getStartTimeMillis() + ";" + execution.getExecutionId() + ";" + execution.getErrorsWhileGettingReport() + ";" + report.getBuildNumber() + ";" + report.getCreationDate() + "+" + report.getEndDate());
         this.nbOfSuccess++;
     }
 
@@ -70,16 +72,18 @@ public class ExecReport {
         log.warn(colorize(
                 "@|" + COLOR_TIMEOUT + " Timeout test execution|@ test (" + device(execution.getDevice()) + ";" + testCase(execution.getTestCase()) + ")"
         ));
+        final long now = System.currentTimeMillis();
         log.debug(
                 "Timeout debug info:\n" +
-                        "wallDuration(our): " + (System.currentTimeMillis() - execution.getRequestStartTime()) + "\n" +
+                        "wallDuration(our): " + (now - execution.getRequestStartTime()) + "\n" +
                         "executeRequestFinishedAt(our): " + new Date(execution.getStartTimeMillis()) + "\n" +
                         "currentTime(our): " + new Date() + "\n" +
                         "execution.getExecutionId: " + execution.getExecutionId() + "\n" +
                         "getErrorsWhileGettingReport: " + execution.getErrorsWhileGettingReport() + "\n" +
                         "durationTillNowMs(calculated): " + durationTillNowMs + "\n" +
-                        "execution.getTestCase().getTimeout(): " + execution.getTestCase().getTimeout() + " -> " + (60 * 1000 * execution.getTestCase().getTimeout()) + "\n"
+                        "execution.getTestCase().getTimeout(): " + execution.getTestCase().getTimeout() + " -> " + (60 * 1000 * execution.getTestCase().getTimeout())
         );
+        log.debug("OGRGEĽ;" + execution.getDevice().getName() + ";" + execution.getTestCase().getName() + ";" + "timeout" + ";" + now + ";" + execution.getRequestStartTime() + ";" + execution.getStartTimeMillis() + ";" + execution.getExecutionId() + ";" + execution.getErrorsWhileGettingReport() + ";;;");
         nbOfTimeouts++;
     }
 
@@ -88,13 +92,15 @@ public class ExecReport {
                 "@|" + COLOR_EXECERR + " error while executing|@ test (" + device(device) + ";" + testCase(testCase) + "), " +
                         "message: @|" + COLOR_EXECERR + " " + response.getMessage() + "|@"
         ));
+        final long now = System.currentTimeMillis();
         log.debug(
                 "executing error debug info:\n" +
-                        "wallDuration(our): " + (System.currentTimeMillis() - requestStartTime) + "\n" +
+                        "wallDuration(our): " + (now - requestStartTime) + "\n" +
                         "requestStartTime(our): " + requestStartTime + "\n" +
                         "currentTime(our): " + new Date() + "\n" +
                         "response:" + response
         );
+        log.debug("OGRGEĽ;" + device + ";" + testCase + ";" + "execError" + ";" + now + ";" + requestStartTime + ";;;;;;");
         this.nbOfExecErrors++;
     }
 
@@ -103,9 +109,10 @@ public class ExecReport {
                 "@|" + COLOR_FAILURE + " Failure test execution|@ test (" + device(execution.getDevice()) + ";" + testCase(execution.getTestCase()) + "), " +
                         "reportLink: " + linkToReport
         ));
+        final long now = System.currentTimeMillis();
         log.debug(
                 "Failure test debug info:\n" +
-                        "wallDuration(our): " + (System.currentTimeMillis() - execution.getRequestStartTime()) + "\n" +
+                        "wallDuration(our): " + (now - execution.getRequestStartTime()) + "\n" +
                         "executeRequestFinishedAt(our): " + new Date(execution.getStartTimeMillis()) + "\n" +
                         "currentTime(our): " + new Date() + "\n" +
                         "execution.getExecutionId: " + execution.getExecutionId() + "\n" +
@@ -118,6 +125,7 @@ public class ExecReport {
                         "report.getStatus: " + report.getStatus() + "\n" +
                         "linkToReport: " + linkToReport
         );
+        log.debug("OGRGEĽ;" + execution.getDevice().getName() + ";" + execution.getTestCase().getName() + ";" + "failure" + ";" + now + ";" + execution.getRequestStartTime() + ";" + execution.getStartTimeMillis() + ";" + execution.getExecutionId() + ";" + execution.getErrorsWhileGettingReport() + ";" + report.getBuildNumber() + ";" + report.getCreationDate() + "+" + report.getEndDate());
         this.nbOfTestFailures++;
     }
 
@@ -173,6 +181,7 @@ public class ExecReport {
                             "@|bold XX waiting|@, " +
                             "@|italic,underline XX inProcess|@)."
             ));
+            log.debug("OGRGEĽ;device;testCase;result;currentTimeMillis;getRequestStartTime;getStartTimeMillis;getExecutionId;getErrorsWhileGettingReport;getBuildNumber;getCreationDate;getEndDate");
         }
         log.info(colorize(
                 "\t@|bg_black,bold,cyan status|@(" +

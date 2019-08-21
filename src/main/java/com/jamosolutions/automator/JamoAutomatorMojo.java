@@ -138,7 +138,7 @@ public class JamoAutomatorMojo extends AbstractMojo {
                     executionsToDoFlight.add(new FutureExecution(device, testCase));
                 }
             }
-            log.debug("there are now @|bold " + executionsToDoFlight.size() + "|@ future executions requests.");
+            log.debug(colorize("there are now @|bold " + executionsToDoFlight.size() + "|@ future executions requests."));
 
             int waitRound = 0;
             List<Execution> executionsInFlight = new ArrayList<>();
