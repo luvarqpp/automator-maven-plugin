@@ -18,10 +18,7 @@ import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
 
-import com.jamosolutions.automator.help.ExecReport;
-import com.jamosolutions.automator.help.Execution;
-import com.jamosolutions.automator.help.FutureExecution;
-import com.jamosolutions.automator.help.UserKeyAndToken;
+import com.jamosolutions.automator.help.*;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.logging.Log;
@@ -32,8 +29,6 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
-import org.springframework.http.converter.HttpMessageConverter;
-import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -41,16 +36,13 @@ import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.Text;
 
-import com.jamosolutions.automator.domain.Credentials;
 import com.jamosolutions.automator.domain.Device;
 import com.jamosolutions.automator.domain.ResponseStringWrapper;
 import com.jamosolutions.automator.domain.TestCase;
 import com.jamosolutions.automator.domain.TestSuite;
-import com.jamosolutions.jamoAutomator.domain.LoginStatus;
 import com.jamosolutions.jamoAutomator.domain.Report;
 
 import static com.jamosolutions.automator.help.Colorizer.*;
-import static org.fusesource.jansi.Ansi.*;
 
 @Mojo(name = "run")
 public class JamoAutomatorMojo extends AbstractMojo {
@@ -135,7 +127,7 @@ public class JamoAutomatorMojo extends AbstractMojo {
             //http://help.catchsoftware.com/display/ET/JUnit+Format
 			testSuiteName = testSuite.getName();
 			testsuiteElement.setAttribute("name", testSuiteName);
-            UserKeyAndToken loginResult = login(testSuite.getCredentials(), testSuite.getUrl());
+			JamoAutomatorClient jamoAutomatorClient = new JamoAutomatorClient(log, testSuite.getCredentials(), testSuite.getUrl());
 
             List<FutureExecution> executionsToDoFlight = new ArrayList<>();
 
@@ -156,10 +148,13 @@ public class JamoAutomatorMojo extends AbstractMojo {
                 for (Iterator<Execution> iterator = executionsInFlight.iterator(); iterator.hasNext();) {
                     Execution execution = iterator.next();
                     // lock of code for checking report availability
+					if(getReportAndProcessIt(execution)) {
+						continue;
+					}
 					{
 						Report report;
 						try {
-							report = getReport(execution.getExecutionId(), loginResult.authToken, testSuite.getUrl());
+							report = jamoAutomatorClient.getReport(execution.getExecutionId());
 						} catch(Exception ex) {
 							logDebugForDevice(
 									log,
@@ -236,7 +231,7 @@ public class JamoAutomatorMojo extends AbstractMojo {
                         errorElement.setAttribute(
                                 "message",
                                 "could not find any report within " + (durationTillNowMs / 1000 / 60) + " minutes. You can try later " +
-                                        " at " + getReportUri(execution.getExecutionId(), loginResult.authToken, testSuite.getUrl())
+                                        " at " + jamoAutomatorClient.getReportUri(execution.getExecutionId())
                         );
                         testcaseElement.appendChild(errorElement);
                         testsuiteElement.appendChild(testcaseElement);
@@ -256,7 +251,7 @@ public class JamoAutomatorMojo extends AbstractMojo {
 						final long requestStartTime = System.currentTimeMillis();
                         ResponseStringWrapper response;
                         try {
-                        	response = runTestCase(idleDevice, testCaseToExecute, loginResult, testSuite.getUrl(), log);
+                        	response = jamoAutomatorClient.runTestCase(idleDevice, testCaseToExecute);
 						} catch(Exception ex) {
                             // TODO count errors in needToExecute and stop it after some number of exceptions.
 							logInfoForDevice(
@@ -331,6 +326,14 @@ public class JamoAutomatorMojo extends AbstractMojo {
 	}
 
 	/**
+	 * @return	returns true, if report has been found and processed. false otherwise.
+	 * @param execution
+	 */
+	private boolean getReportAndProcessIt(Execution execution) {
+		return false;
+	}
+
+	/**
 	 * Logs (in debug level) given line, if given device has not logged exactly same message as last message.
 	 *
 	 * @see #lastDebugLogPerDevice
@@ -364,104 +367,4 @@ public class JamoAutomatorMojo extends AbstractMojo {
 		}
         return Optional.empty();
     }
-
-    private URI getReportUri(String executionId, String accessToken, String url) {
-		UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(url + "/rest/integration/report/" + executionId);
-		return builder.build().encode().toUri();
-	}
-
-	private Report getReport(String executionId, String accessToken, String url) {
-		RestTemplate restTemplate = new RestTemplate();
-		restTemplate.setMessageConverters(getMessageConverters());
-		URI reportUri = getReportUri(executionId, accessToken, url);
-		HttpHeaders headers = new HttpHeaders();
-		headers.add("X-AUTH-TOKEN", accessToken);
-		HttpEntity<String> entity = new HttpEntity<String>("parameters", headers);
-		ResponseEntity<Report> responseEntity = restTemplate.exchange(reportUri, HttpMethod.GET, entity, Report.class);
-		Report report = responseEntity.getBody();
-		return report;
-	}
-
-	private ResponseStringWrapper runTestCase(Device device, TestCase testCase, UserKeyAndToken auth, String url, Log log)
-			throws MojoExecutionException {
-		log.info(colorize("Going to execute :" + testCase(testCase) + " on device " + device(device)));
-		RestTemplate restTemplate = new RestTemplate();
-		restTemplate.setMessageConverters(getMessageConverters());
-		UriComponentsBuilder builder;
-		url += "/rest/integration";
-		if (testCase.getSpecification() != null) {
-			if (StringUtils.isEmpty(device.getUdid())) {
-				builder = UriComponentsBuilder.fromHttpUrl(url + "/runSpec");
-			} else {
-				builder = UriComponentsBuilder.fromHttpUrl(url + "/runSpec/udid");
-			}
-			builder.queryParam("specification", testCase.getSpecification());
-		} else {
-			if (StringUtils.isEmpty(device.getUdid())) {
-				builder = UriComponentsBuilder.fromHttpUrl(url + "/run");
-			} else {
-				builder = UriComponentsBuilder.fromHttpUrl(url + "/run/udid");
-			}
-		}
-		// index parameter does not have meaning anymore, so sending 0. see mail from 20190726
-		builder.queryParam("testCase", testCase.getName()).queryParam("index", "0").queryParam("userKey", auth.userKey);
-		if (StringUtils.isEmpty(device.getUdid())) {
-			log.debug(colorize("running with device name " + device(device)));
-			builder.queryParam("device", device.getName());
-		} else {
-			log.debug(colorize("running with uniqueDeviceConfiguration " + deviceUdid(device)));
-			builder.queryParam("uniqueDeviceIdentification", device.getUdid());
-		}
-		HttpHeaders headers = new HttpHeaders();
-		headers.add("X-AUTH-TOKEN", auth.authToken);
-		HttpEntity<String> entity = new HttpEntity<String>("parameters", headers);
-		final URI urlFinal = builder.build().encode().toUri();
-		try {
-			log.debug("Going to execute test using uri: " + urlFinal.toURL());
-		} catch (MalformedURLException e) {
-			e.printStackTrace();
-		}
-		ResponseEntity<ResponseStringWrapper> responseEntity = restTemplate.exchange(urlFinal, HttpMethod.GET, entity,
-				ResponseStringWrapper.class);
-		ResponseStringWrapper result = responseEntity.getBody();
-		log.debug("success:" + result.isSuccess() + "; execution id is:" + result.getMessage());
-		return result;
-	}
-
-	private UserKeyAndToken login(Credentials credentials, String url) throws MojoExecutionException {
-		final Log log = getLog();
-		List<String> result = new ArrayList<>();
-		RestTemplate restTemplate = new RestTemplate();
-		restTemplate.setMessageConverters(getMessageConverters());
-		UriComponentsBuilder builder = UriComponentsBuilder
-				.fromHttpUrl(url + "/rest/login")
-				.queryParam("j_username", credentials.getUsername())
-				.queryParam("j_password", "__hereComesYourActualPasswordWhichHave_" + credentials.getPassword().length() + "_characters__")
-				.queryParam("account", credentials.getAccount());
-		log.debug("Login POST request will be like this: " + builder.build());
-		log.debug("Going to replace dummy (for logging) password with actual one.");
-		builder = builder
-				.replaceQueryParam("j_password", credentials.getPassword());
-		ResponseEntity<LoginStatus> response = restTemplate.postForEntity(builder.build().encode().toUri(), null, LoginStatus.class);
-		log.debug("Login response is " + response);
-		if(false == response.getStatusCode().is2xxSuccessful()) {
-			log.error("Response from login has not 2XX status code! Response:" + response);
-			throw new RuntimeException("Login failed. Response is " + response.getStatusCode() + ". See log for more info.");
-		}
-		if(false == response.getBody().isSuccess()) {
-			log.error("Response from login HAS 2XX status code, despite request body states that success is FALSE! (you cn try to check account parameter, which is \"" + credentials.getAccount() + "\") Response:" + response);
-			log.error("Header with key X-AUTH-TOKEN = " + response.getHeaders().get("X-AUTH-TOKEN"));
-			throw new RuntimeException("Login failed. Response is " + response.getBody() + ". See log for more info.");
-		}
-
-		return new UserKeyAndToken(
-				response.getBody().getUserKeyString(),
-				response.getHeaders().get("X-AUTH-TOKEN").get(0)
-		);
-	}
-
-	private static List<HttpMessageConverter<?>> getMessageConverters() {
-		List<HttpMessageConverter<?>> converters = new ArrayList<HttpMessageConverter<?>>();
-		converters.add(new MappingJackson2HttpMessageConverter());
-		return converters;
-	}}
+}
