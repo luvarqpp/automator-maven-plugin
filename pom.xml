@@ -2,7 +2,7 @@
  	<modelVersion>4.0.0</modelVersion>
   	<groupId>com.jamosolutions</groupId>
   	<artifactId>jamoautomator-maven-plugin</artifactId>
-  	<version>1.0.7-SNAPSHOT</version>
+  	<version>1.0.7</version>
   	<packaging>maven-plugin</packaging>
   	<name>Jamo Automator Maven CI Plugin</name>
 	<description>A plugin that allows you to run JamoAutomator testcases using a Continous Integration system like Jenkins or Bamboo</description>
@@ -105,7 +105,6 @@
 			</dependency>
 		</dependencies>
 	</dependencyManagement>
-
 
 	<dependencies>
 		<dependency>
