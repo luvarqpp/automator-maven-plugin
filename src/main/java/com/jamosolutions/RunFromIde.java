@@ -6,16 +6,13 @@ import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.logging.Log;
 import org.codehaus.plexus.logging.Logger;
 import org.codehaus.plexus.logging.console.ConsoleLogger;
-import org.fusesource.jansi.Ansi;
-import static org.fusesource.jansi.Ansi.*;
-import static org.fusesource.jansi.Ansi.Color.*;
 import org.fusesource.jansi.AnsiConsole;
 
 public class RunFromIde {
     private static final Log log = new DefaultLog(new ConsoleLogger(Logger.LEVEL_DEBUG, "RunFromIde"));
 
     public static void main(String[] args) {
-        JamoAutomatorMojo jamoAutomatorMojo = new JamoAutomatorMojo();
+        JamoAutomatorMojo jamoAutomatorMojo = new JamoAutomatorMojo(true);
         try {
             // make InteliJ Idea console output colors
             System.setProperty("jansi.passthrough", "true");

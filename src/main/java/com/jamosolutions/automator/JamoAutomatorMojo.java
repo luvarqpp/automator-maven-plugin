@@ -1,70 +1,75 @@
 package com.jamosolutions.automator;
 
-import java.io.File;
-import java.net.MalformedURLException;
-import java.net.URI;
-import java.util.*;
-
-import javax.xml.bind.JAXBContext;
-import javax.xml.bind.JAXBException;
-import javax.xml.bind.Unmarshaller;
-import javax.xml.parsers.DocumentBuilder;
-import javax.xml.parsers.DocumentBuilderFactory;
-import javax.xml.parsers.ParserConfigurationException;
-import javax.xml.transform.Transformer;
-import javax.xml.transform.TransformerConfigurationException;
-import javax.xml.transform.TransformerException;
-import javax.xml.transform.TransformerFactory;
-import javax.xml.transform.dom.DOMSource;
-import javax.xml.transform.stream.StreamResult;
-
+import com.jamosolutions.automator.domain.Device;
+import com.jamosolutions.automator.domain.TestCase;
+import com.jamosolutions.automator.domain.TestSuite;
 import com.jamosolutions.automator.help.*;
+import com.jamosolutions.automator.reporters.CsvTestRunReporter;
+import com.jamosolutions.automator.reporters.JunitXmlTestRunReporter;
+import com.jamosolutions.automator.reporters.OnlineLogTestRunExecReport;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.logging.Log;
 import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.project.MavenProject;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.ResponseEntity;
-import org.springframework.util.StringUtils;
-import org.springframework.web.client.RestTemplate;
-import org.springframework.web.util.UriComponentsBuilder;
-import org.w3c.dom.Document;
-import org.w3c.dom.Element;
-import org.w3c.dom.Text;
 
-import com.jamosolutions.automator.domain.Device;
-import com.jamosolutions.automator.domain.ResponseStringWrapper;
-import com.jamosolutions.automator.domain.TestCase;
-import com.jamosolutions.automator.domain.TestSuite;
-import com.jamosolutions.jamoAutomator.domain.Report;
+import javax.xml.bind.JAXBContext;
+import javax.xml.bind.JAXBException;
+import javax.xml.bind.Unmarshaller;
+import java.io.File;
+import java.io.IOException;
+import java.util.Date;
+import java.util.List;
 
-import static com.jamosolutions.automator.help.Colorizer.*;
+import static com.jamosolutions.automator.help.Colorizer.colorize;
 
-@Mojo(name = "run")
+/**
+ * Run tests on given devices. List of tests/devices is taken from "descriptor" parameter.
+ */
+@Mojo(name = "run", requiresOnline = true)
 public class JamoAutomatorMojo extends AbstractMojo {
+    public static final long WAIT_ROUND_DURATION_MS = 5000;
 	//show tests in progress
 	//https://wiki.jenkins-ci.org/display/JENKINS/Test+In+Progress+Plugin
 	//maven version plugin
 	//http://www.mojohaus.org/versions-maven-plugin/
 	//mvn versions:use-latest-versions -DallowSnapshots=true
+	//mvn help:describe -Dplugin=com.jamosolutions:jamoautomator-maven-plugin:1.0.7-SNAPSHOT -Ddetail
+	//https://maven.apache.org/plugin-testing/maven-plugin-testing-harness/getting-started/index.html
 
     @Parameter(readonly = true, defaultValue = "${project}")
     private MavenProject project;
 
+	/**
+	 * Default value for test descriptor (xml file with list of devices and tests to run on them) is
+	 * <b>src/main/resources/testsuite.xml</b>.
+	 */
 	@Parameter(defaultValue = "${suite}")
 	private String descriptor;
 
 	/**
-	 * Holds last debug log string for each device. This is used to suppress logging same messages in basic scenarios.
+	 * Determines, if plugin should automatically retest failed tests. This means if you set this parameter to true,
+	 * plugin will add tests with negative outcome to "executionsToDoFlight" queue (at most once).
 	 *
-	 * @see #logDebugForDevice(Log, Device, String)
+	 * As test with negative outcome is considered:
+	 * <ul>
+	 *     <li>Finished test with failed result</li>
+	 *     <li>Execute attempt with fail (wrong test name, target device offline, ...)</li>
+	 *     <li>Timeout-ed test execution</li>
+	 * </ul>
+	 *
+	 * NOTE: Some negative outcomes are retried uselessly. For example failed execution attempt with wrong name of test.
 	 */
-	private final Map<Device, String> lastDebugLogPerDevice = new HashMap<>();
-	private final Map<Device, String> lastInfoLogPerDevice = new HashMap<>();
+	@Parameter(defaultValue = "false")
+	private boolean retest;
+
+	public JamoAutomatorMojo() {
+	}
+
+	public JamoAutomatorMojo(boolean retest) {
+		this.retest = retest;
+	}
 
 	protected File getReportDirectory(File baseDirAbsolutePath) {
 		File reportFolder = new File(baseDirAbsolutePath, "target/surefire-reports");
@@ -104,21 +109,13 @@ public class JamoAutomatorMojo extends AbstractMojo {
             );
             return;
         }
-		DocumentBuilderFactory docFactory = DocumentBuilderFactory.newInstance();
-		DocumentBuilder docBuilder = null;
-		try {
-			docBuilder = docFactory.newDocumentBuilder();
-		} catch (ParserConfigurationException e) {
-			log.error("could not build junit xml document", e);
-			throw new RuntimeException("Unexpected error = " + e.getMessage(), e);
-		}
-		Document doc = docBuilder.newDocument();
-		Element testsuiteElement = doc.createElement("testsuite");
-		doc.appendChild(testsuiteElement);
-        ExecReport er = new ExecReport(log);
 		long startMillis = System.currentTimeMillis();
 		String testSuiteName = "";
-		try {
+		OnlineLogTestRunExecReport onlineLogTestRunExecReport = new OnlineLogTestRunExecReport(log);
+		try (
+				JunitXmlTestRunReporter junitXmlTestRunReporter = new JunitXmlTestRunReporter(log, onlineLogTestRunExecReport, getReportDirectory(baseDir).getAbsolutePath());
+				CsvTestRunReporter csvTestRunReporter = new CsvTestRunReporter("target/testRunsRaw.csv")
+		) {
             //parse the testsuite file
             JAXBContext jaxbContext = JAXBContext.newInstance(TestSuite.class);
             Unmarshaller jaxbUnmarshaller = jaxbContext.createUnmarshaller();
@@ -126,172 +123,41 @@ public class JamoAutomatorMojo extends AbstractMojo {
             //build the xml test suite document
             //http://help.catchsoftware.com/display/ET/JUnit+Format
 			testSuiteName = testSuite.getName();
-			testsuiteElement.setAttribute("name", testSuiteName);
-			JamoAutomatorClient jamoAutomatorClient = new JamoAutomatorClient(log, testSuite.getCredentials(), testSuite.getUrl());
+			junitXmlTestRunReporter.setTestSuiteName(testSuiteName);
 
-            List<FutureExecution> executionsToDoFlight = new ArrayList<>();
+			final JamoAutomatorClient jamoAutomatorClient = new JamoAutomatorClient(log, testSuite.getCredentials(), testSuite.getUrl());
+            final TestOrchestrator testOrchestrator = new TestOrchestrator(jamoAutomatorClient, log, this.retest ? 1 : 0);
 
-            log.debug("Going to prefill all future executions.");
-            for (Device device : testSuite.getDevices()) {
-                int idx = 0;
+            log.debug("Going to pre-fill all future executions.");
+			final List<Device> allDevices = testSuite.getDevices();
+			for (Device device : allDevices) {
                 for (TestCase testCase : device.getTestCases()) {
-                    executionsToDoFlight.add(new FutureExecution(device, testCase));
+                    testOrchestrator.addTestForExecution(new PlannedTestRun(device, testCase));
                 }
             }
-            log.debug(colorize("there are now @|bold " + executionsToDoFlight.size() + "|@ future executions requests."));
+            // log.debug(colorize("there are now @|bold " + executionsToDoFlight.size() + "|@ future executions requests."));
 
             int waitRound = 0;
-            List<Execution> executionsInFlight = new ArrayList<>();
-            while (executionsToDoFlight.size() > 0 || executionsInFlight.size() > 0) {
-                Set<Device> devicesWithSingleExecutionOnIt = new HashSet<>();
-
-                for (Iterator<Execution> iterator = executionsInFlight.iterator(); iterator.hasNext();) {
-                    Execution execution = iterator.next();
-                    // lock of code for checking report availability
-					if(getReportAndProcessIt(execution)) {
-						continue;
-					}
-					{
-						Report report;
-						try {
-							report = jamoAutomatorClient.getReport(execution.getExecutionId());
-						} catch(Exception ex) {
-							logDebugForDevice(
-									log,
-									execution.getDevice(),
-									colorize(
-											"Device " + device(execution.getDevice()) + " have still running test " +
-													"@|blue " + execution.getTestCase() + "|@ on it (no report found with id " +
-													"@|blue " + execution.getExecutionId() + "|@). Going to wait."
-
-									)
-							);
-							execution.errorGettingReport(ex);
-							final int errorsWhileGettingReport = execution.getErrorsWhileGettingReport();
-							if(errorsWhileGettingReport >= 5) {
-								throw new RuntimeException("Error while getting report has occurred " + errorsWhileGettingReport + " times!", ex);
-							}
-							if(errorsWhileGettingReport >= 3) {
-								log.warn(colorize(
-										"There were @|bold,red " + errorsWhileGettingReport + "|@ " +
-												"errors while getting report from jamo. @|bold,yellow Going to suspend all activities for 7 minutes!|@"
-								));
-								Thread.sleep(7 * 60 * 1000);
-							}
-							continue;
-						}
-						if (report != null) {
-							Element testcaseElement = doc.createElement("testcase");
-							long durationFromReportMs = report.getEndDate().getTime() - report.getCreationDate().getTime();
-							testcaseElement.setAttribute("time", "" + (durationFromReportMs/ 1000));
-							testcaseElement.setAttribute("name", execution.getTestCase().getName());
-							testcaseElement.setAttribute("classname", "com.jamosolutions." + testSuite.getName() + "." + execution.getDevice().getName());
-							if (report.getStatus() != 0) {
-								final String linkToReport = testSuite.getUrl() + "/index.html?reportDetail=" + report.getKeyString();
-								er.recordTestFailure(execution, report, linkToReport);
-								Element failureElement = doc.createElement("failure");
-								failureElement.setAttribute("message", "The test case did not succeed.");
-								Text errorMessageDetail = doc.createTextNode("For more detail click " + linkToReport);
-								failureElement.appendChild(errorMessageDetail);
-								testcaseElement.appendChild(failureElement);
-							} else {
-								Element systemoutElement = doc.createElement("system-out");
-								Text okMessageDetail = doc.createTextNode("For more detail click " + testSuite.getUrl() + "/index.html?reportDetail="
-										+ report.getKeyString());
-								systemoutElement.appendChild(okMessageDetail);
-								testcaseElement.appendChild(systemoutElement);
-								er.recordSuccess(execution, report);
-							}
-							testsuiteElement.appendChild(testcaseElement);
-							iterator.remove();
-							continue;
-						} else {
-							logDebugForDevice(
-									log,
-									execution.getDevice(),
-									colorize(
-											"Device " + device(execution.getDevice()) + " have still running test " +
-													"@|blue " + execution.getTestCase() + "|@ on it (no report found with id " +
-													"@|blue " + execution.getExecutionId() + "|@). Going to wait."
-
-									)
-							);
-							devicesWithSingleExecutionOnIt.add(execution.getDevice());
-						}
-					}
-                    long durationTillNowMs = (System.currentTimeMillis() - execution.getStartTimeMillis());
-                    if (durationTillNowMs > execution.getTestCase().getTimeout() * 60 * 1000) {
-                        iterator.remove();
-                        er.recordTimeout(execution, durationTillNowMs);
-                        Element testcaseElement = doc.createElement("testcase");
-                        testcaseElement.setAttribute("time", "" + (durationTillNowMs / 1000.0));
-                        testcaseElement.setAttribute("name", execution.getTestCase().getName());
-                        testcaseElement.setAttribute("classname", "com.jamosolutions." + testSuite.getName() + "." + execution.getDevice().getName());
-                        Element errorElement = doc.createElement("error");
-                        errorElement.setAttribute(
-                                "message",
-                                "could not find any report within " + (durationTillNowMs / 1000 / 60) + " minutes. You can try later " +
-                                        " at " + jamoAutomatorClient.getReportUri(execution.getExecutionId())
-                        );
-                        testcaseElement.appendChild(errorElement);
-                        testsuiteElement.appendChild(testcaseElement);
-                    }
-                } // end of for iterator through executionsInFlight
-
-                Set<Device> idleDevices = new HashSet<>(testSuite.getDevices());
-                idleDevices.removeAll(devicesWithSingleExecutionOnIt);
-
-                for (Device idleDevice: idleDevices) {
-                    Optional<FutureExecution> newTest = popAnotherTestForDevice(executionsToDoFlight, idleDevice);
-                    if(newTest.isPresent()) {
-                        FutureExecution needToExecute = newTest.get();
-                        log.info(colorize("Device " + device(idleDevice) + " have no awaiting report for now, going to execute " + testCase(needToExecute.getTestCase()) + " on it."));
-                        // request test execution
-                        final TestCase testCaseToExecute = needToExecute.getTestCase();
-						final long requestStartTime = System.currentTimeMillis();
-                        ResponseStringWrapper response;
-                        try {
-                        	response = jamoAutomatorClient.runTestCase(idleDevice, testCaseToExecute);
-						} catch(Exception ex) {
-                            // TODO count errors in needToExecute and stop it after some number of exceptions.
-							logInfoForDevice(
-									log,
-									needToExecute.getDevice(),
-									colorize(
-											"Failed to execute test case on device " + device(needToExecute.getDevice()) + ", test case " +
-													"@|blue " + needToExecute.getTestCase() + "|@. Going to try next round."
-
-									)
-							);
-							continue;
-						}
-                        if (response.isSuccess()) {
-                            executionsInFlight.add(new Execution(response.getMessage(), idleDevice, testCaseToExecute, requestStartTime));
-                        } else {
-                            er.recordExecError(idleDevice, testCaseToExecute, response, requestStartTime);
-                            Element testcaseElement = doc.createElement("testcase");
-                            testcaseElement.setAttribute("time", "" + 0);
-                            testcaseElement.setAttribute("name", testCaseToExecute.getName());
-                            testcaseElement.setAttribute("classname", "com.jamosolutions." + testSuite.getName() + "." + needToExecute.getDevice().getName());
-                            Element errorElement = doc.createElement("error");
-                            errorElement.setAttribute("message", response.getMessage());
-                            testcaseElement.appendChild(errorElement);
-                            testsuiteElement.appendChild(testcaseElement);
-                        }
-                    } else {
-						logDebugForDevice(
-								log,
-								idleDevice,
-								colorize("Device " + device(idleDevice) + " is not waiting for any report, nor have any tests to execute.")
-						);
-                    }
-                }
-
+			final List<TestRunReporterListener> testRunReporterListeners = testOrchestrator.getTestRunReporterListeners();
+			testRunReporterListeners.add(junitXmlTestRunReporter);
+			testRunReporterListeners.add(onlineLogTestRunExecReport);
+			testRunReporterListeners.add(csvTestRunReporter);
+			try {
+				csvTestRunReporter.prepareOutputFile();
+			} catch (IOException ex) {
+				throw new MojoExecutionException("Problem while creating/opening/accessing file testRunsRaw.csv. ex=" + ex.getMessage(), ex);
+			}
+			onlineLogTestRunExecReport.logProgressReport(waitRound, testOrchestrator);
+			while (testOrchestrator.isStillSomethingNeedToBeDone()) {
+                testOrchestrator.getReportsForRunningTests();
+                testOrchestrator.checkTimeoutsOnRunningTests();
+            	testOrchestrator.checkForIdleDevicesAndUseThem();
                 // print progress at 0, 30 and 60 seconds and than each minute
                 if (waitRound == 6 || (waitRound % 12 == 0)) {
-                    er.logProgressReport(waitRound, executionsToDoFlight, executionsInFlight);
+                    // TODO pass orchestrator to exec report to have data...
+                    onlineLogTestRunExecReport.logProgressReport(waitRound, testOrchestrator);
                 }
-                Thread.sleep(5000);
+                Thread.sleep(WAIT_ROUND_DURATION_MS);
                 waitRound++;
             } // end of while there is executing, or to be executed.
         } catch (JAXBException e) {
@@ -299,72 +165,18 @@ public class JamoAutomatorMojo extends AbstractMojo {
         } catch (InterruptedException e) {
             log.info("the test suite has been interrupted", e);
         } finally {
-			er.logSummaryReport();
-			testsuiteElement.setAttribute("errors", "" + er.getNbOfErrors());
-			testsuiteElement.setAttribute("failures", "" + er.getNbOfTestFailures());
-			long totalDuration = (System.currentTimeMillis() - startMillis) / 1000;
-			log.info("Wall time of running reports is " + totalDuration + " seconds.");
-			testsuiteElement.setAttribute("time", "" + totalDuration);
-			TransformerFactory transformerFactory = TransformerFactory.newInstance();
-			Transformer transformer = null;
-			try {
-				transformer = transformerFactory.newTransformer();
-			} catch (TransformerConfigurationException e) {
-				log.error("could not build junit xml document", e);
-				throw new RuntimeException("Unexpected exception " + e.getMessage(), e);
-			}
-			DOMSource source = new DOMSource(doc);
-			File reportFile = new File(getReportDirectory(baseDir).getAbsolutePath(), "TEST-com.jamoautomator." + testSuiteName + ".xml");
-			StreamResult result = new StreamResult(reportFile);
-			try {
-				transformer.transform(source, result);
-			} catch (TransformerException e) {
-				log.error("could not build junit xml document", e);
-				throw new RuntimeException("Unexpected exception " + e.getMessage(), e);
-			}
+			onlineLogTestRunExecReport.logSummaryReport();
 		}
 	}
 
 	/**
+	 * Returns true, only if given execution is "solved". If there is retry needed for timeouted
+	 * @param log
+	 * @param testRun
 	 * @return	returns true, if report has been found and processed. false otherwise.
-	 * @param execution
 	 */
-	private boolean getReportAndProcessIt(Execution execution) {
+	private boolean isTimeouted(Log log, TestRun testRun) {
 		return false;
 	}
 
-	/**
-	 * Logs (in debug level) given line, if given device has not logged exactly same message as last message.
-	 *
-	 * @see #lastDebugLogPerDevice
-	 */
-	private void logDebugForDevice(Log log, Device device, String message) {
-		String lastLog = lastDebugLogPerDevice.get(device);
-		if(!Objects.equals(lastLog, message)) {
-			lastDebugLogPerDevice.put(device, message);
-			log.debug(message);
-		}
-	}
-	private void logInfoForDevice(Log log, Device device, String message) {
-		String lastLog = lastInfoLogPerDevice.get(device);
-		if(!Objects.equals(lastLog, message)) {
-			lastInfoLogPerDevice.put(device, message);
-			log.info(message);
-		}
-	}
-
-	/**
-	 * Get AND remove any future execution instance for given device.
-	 */
-	private Optional<FutureExecution> popAnotherTestForDevice(List<FutureExecution> futureExecutions, Device device) {
-		// futureExecutions.stream().filter(e -> e.device.equals(device)).findAny();
-		for(Iterator<FutureExecution> futureExecutionsIterator = futureExecutions.iterator(); futureExecutionsIterator.hasNext();) {
-			FutureExecution fe = futureExecutionsIterator.next();
-			if(fe.getDevice().equals(device)) {
-				futureExecutionsIterator.remove();
-				return Optional.of(fe);
-			}
-		}
-        return Optional.empty();
-    }
 }

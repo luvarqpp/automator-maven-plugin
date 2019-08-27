@@ -106,6 +106,7 @@ public class JamoAutomatorClient {
         HttpEntity<String> entity = new HttpEntity<String>("parameters", headers);
         ResponseEntity<Report> responseEntity = restTemplate.exchange(reportUri, HttpMethod.GET, entity, Report.class);
         Report report = responseEntity.getBody();
+        report.setBaseUrl(this.url);
         return report;
     }
 }

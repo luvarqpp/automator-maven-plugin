@@ -1,9 +1,9 @@
 package com.jamosolutions.jamoAutomator.domain;
 
-import java.util.Date;
-
 import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
+import java.util.Date;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class Report {
@@ -16,6 +16,8 @@ public class Report {
 	private Boolean jamoVersionUpToDate = Boolean.TRUE;
 	private String message;
 	private String executionId;
+
+	private String baseUrl = "https://jamo-release.appspot.com";
 
 	public String getKeyString() {
 		return keyString;
@@ -89,5 +91,18 @@ public class Report {
 
 	public void setExecutionId(String executionId) {
 		this.executionId = executionId;
+	}
+
+	public String getReportUrl() {
+		final String linkToReport = this.baseUrl + "/index.html?reportDetail=" + this.getKeyString();
+		return linkToReport;
+	}
+
+	public String getBaseUrl() {
+		return baseUrl;
+	}
+
+	public void setBaseUrl(String baseUrl) {
+		this.baseUrl = baseUrl;
 	}
 }
