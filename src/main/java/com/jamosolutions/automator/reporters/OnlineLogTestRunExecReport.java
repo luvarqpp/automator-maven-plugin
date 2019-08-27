@@ -21,6 +21,7 @@ public class OnlineLogTestRunExecReport implements TestRunReporterListener {
     public static final String COLOR_TIMEOUT = "faint,underline,red,bold";
     public static final String COLOR_EXECERR = "yellow,bold";
     public static final String COLOR_FAILURE = "red,bold";
+    private static final String COLOR_RETRIED = "italic";
 
     private final Log log;
 
@@ -187,7 +188,8 @@ public class OnlineLogTestRunExecReport implements TestRunReporterListener {
                             "@|" + OnlineLogTestRunExecReport.COLOR_EXECERR + " execErrs|@/" +
                             "@|" + OnlineLogTestRunExecReport.COLOR_TIMEOUT + " timeouts|@), " +
                             "@|bold XX waiting|@, " +
-                            "@|italic,underline XX inProcess|@)."
+                            "@|italic,underline XX inProcess|@, " +
+                            "@|italic XX retried|@)."
             ));
         }
         log.info(colorize(
@@ -198,7 +200,8 @@ public class OnlineLogTestRunExecReport implements TestRunReporterListener {
                         "@|" + OnlineLogTestRunExecReport.COLOR_EXECERR + " " + this.getNbOfExecErrors() + "|@/" +
                         "@|" + OnlineLogTestRunExecReport.COLOR_TIMEOUT + " " + this.getNbOfTimeouts() + "|@), " +
                         "@|bold " + executionsToDoFlight + " waiting|@, " +
-                        "@|italic,underline " + executionsInFlight + " inProcess|@) " +
+                        "@|italic,underline " + executionsInFlight + " inProcess|@, " +
+                        "@|italic,underline " + this.nbOfRetryLater + " retried|@) " +
                         "I have waited about " + (waitRound * 5) + " seconds for reports till now. Going to wait another 5 seconds."
         ));
     }
@@ -220,6 +223,8 @@ public class OnlineLogTestRunExecReport implements TestRunReporterListener {
                         "exec err|@: \t@|bold " + this.getNbOfExecErrors() + "|@\t (number of executions failed. It counts executions of nonexistent tests, problems with authentication to jamo during test executions and so on)\n" +
                         "\t@|" + OnlineLogTestRunExecReport.COLOR_TIMEOUT + " " +
                         "recordTimeout|@ : @|bold " + this.getNbOfTimeouts() + "|@\t (report not found within recordTimeout after test execution started)\n" +
+                        "\t@|" + OnlineLogTestRunExecReport.COLOR_RETRIED + " " +
+                        "retried|@ : \t@|bold " + this.getNbOfRetryLater() + "|@\t (number of test runs which has been retried due failure of any kind. These test runs are not presented in junit xml output, but you can find them in csv output with willBeRetried=true)\n" +
                         "\t@|bold " +
                         "total|@ : \t@|bold " + this.getTotalExecutionsAttempts() + "|@\t (just sum of previous numbers)"
         ));

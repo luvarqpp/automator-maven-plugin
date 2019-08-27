@@ -71,7 +71,7 @@ public class TestOrchestrator {
     public void checkForIdleDevicesAndUseThem() {
         Set<Device> idleDevicesWithNonEmptyToDo = new HashSet<>(executionsToDoFlight.keySet());
         idleDevicesWithNonEmptyToDo.removeAll(executionsInFlight.keySet());
-        if(idleDevicesWithNonEmptyToDo.isEmpty()) {
+        if (idleDevicesWithNonEmptyToDo.isEmpty()) {
             log.debug("There is no idle device with some work in ToDo queue.");
             return;
         }
@@ -106,7 +106,8 @@ public class TestOrchestrator {
      * with no execution running on it.
      */
     public void getReportsForRunningTests() {
-        for (Device device : executionsInFlight.keySet()) {
+        HashSet<Device> copyKeyset = new HashSet<>(executionsInFlight.keySet());
+        for (Device device : copyKeyset) {
             this.getReportsForRunningTests(device);
         }
     }
@@ -122,7 +123,7 @@ public class TestOrchestrator {
 
     private void removeFromInFlight(Iterator<TestRun> iterator, Device device) {
         iterator.remove();
-        if(executionsInFlight.get(device).size() == 0) {
+        if (executionsInFlight.get(device).size() == 0) {
             // Remove empty list for device.
             log.debug(colorize("Going to remove record from executionsInFlight for device " + device(device) + "."));
             executionsInFlight.remove(device);
@@ -130,8 +131,8 @@ public class TestOrchestrator {
     }
 
     public void checkTimeoutsOnRunningTests() {
-        this.executionsInFlight.keySet();
-        for (Device device : executionsInFlight.keySet()) {
+        HashSet<Device> copyKeyset = new HashSet<>(executionsInFlight.keySet());
+        for (Device device : copyKeyset) {
             this.checkTimeoutsOnRunningTests(device);
         }
     }
@@ -152,11 +153,11 @@ public class TestOrchestrator {
      * parameter. Method will solve some logging and adding new {@link TestRun} instance to execution list, using
      * {@link #addTestForExecution(PlannedTestRun)}.
      *
-     * @param testRun   actual {@link TestRun} which should be checked for "retest" attempt
-     * @return  true, if retest was planned, false otherwise
+     * @param testRun actual {@link TestRun} which should be checked for "retest" attempt
+     * @return true, if retest was planned, false otherwise
      */
     private boolean retestIfNeeded(TestRun testRun) {
-        if(testRun.getExecutionOutcome() == ExecutionOutcome.SUCCESS) {
+        if (testRun.getExecutionOutcome() == ExecutionOutcome.SUCCESS) {
             throw new RuntimeException("retestIfNeeded called with testRun with Success execution outcome! testRun=" + testRun);
         }
         final Device device = testRun.getPlannedTestRun().getDevice();
@@ -281,7 +282,7 @@ public class TestOrchestrator {
         for (Iterator<PlannedTestRun> futureExecutionsIterator = executionsToDoFlight.get(device).iterator(); futureExecutionsIterator.hasNext(); ) {
             PlannedTestRun fe = futureExecutionsIterator.next();
             futureExecutionsIterator.remove();
-            if(executionsToDoFlight.get(device).size() == 0) {
+            if (executionsToDoFlight.get(device).size() == 0) {
                 // Remove empty list for device.
                 log.debug(colorize("Going to remove record from executionsToDoFlight for device " + device(device) + "."));
                 executionsToDoFlight.remove(device);

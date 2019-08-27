@@ -25,6 +25,7 @@ public class CsvTestRunReporter implements TestRunReporterListener, AutoCloseabl
         FileWriter fileWriter = new FileWriter(fileName);
         this.printWriter = new PrintWriter(fileWriter);
         this.printWriter.println("device;testCase;result;currentTimeMillis;getRequestStartTime;getStartTimeMillis;getExecutionId;getErrorsWhileGettingReport;getBuildNumber;getCreationDate;getEndDate;willBeRetried");
+        this.printWriter.flush();
     }
 
     @Override
@@ -48,6 +49,7 @@ public class CsvTestRunReporter implements TestRunReporterListener, AutoCloseabl
                 printWriter.println("" + device.getName() + ";" + testCase.getName() + ";" + "execError" + ";" + now + ";" + testRun.getRequestStartTime() + ";;;;;;" + willBeRetried);
                 break;
         }
+        this.printWriter.flush();
     }
 
     @Override
