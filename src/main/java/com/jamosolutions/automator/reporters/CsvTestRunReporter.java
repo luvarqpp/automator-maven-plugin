@@ -37,10 +37,10 @@ public class CsvTestRunReporter implements TestRunReporterListener, AutoCloseabl
         final long now = System.currentTimeMillis();
         switch (testRun.getExecutionOutcome()) {
             case SUCCESS:
-                printWriter.println("" + device.getName() + ";" + testCase.getName() + ";" + "success" + ";" + now + ";" + testRun.getRequestStartTime() + ";" + testRun.getExecRequestReturnedTimeMillis() + ";" + testRun.getExecutionId() + ";" + testRun.getErrorsWhileGettingReport() + ";" + report.getBuildNumber() + ";" + report.getCreationDate() + "+" + report.getEndDate() + ";false");
+                printWriter.println("" + device.getName() + ";" + testCase.getName() + ";" + "success" + ";" + now + ";" + testRun.getRequestStartTime() + ";" + testRun.getExecRequestReturnedTimeMillis() + ";" + testRun.getExecutionId() + ";" + testRun.getErrorsWhileGettingReport() + ";" + report.getBuildNumber() + ";" + report.getCreationDate() + ";" + report.getEndDate() + ";false");
                 break;
             case FAILURE:
-                printWriter.println("" + device.getName() + ";" + testCase.getName() + ";" + "failure" + ";" + now + ";" + testRun.getRequestStartTime() + ";" + testRun.getExecRequestReturnedTimeMillis() + ";" + testRun.getExecutionId() + ";" + testRun.getErrorsWhileGettingReport() + ";" + report.getBuildNumber() + ";" + report.getCreationDate() + "+" + report.getEndDate() + ";" + willBeRetried);
+                printWriter.println("" + device.getName() + ";" + testCase.getName() + ";" + "failure" + ";" + now + ";" + testRun.getRequestStartTime() + ";" + testRun.getExecRequestReturnedTimeMillis() + ";" + testRun.getExecutionId() + ";" + testRun.getErrorsWhileGettingReport() + ";" + report.getBuildNumber() + ";" + report.getCreationDate() + ";" + report.getEndDate() + ";" + willBeRetried);
                 break;
             case TIMEOUT:
                 printWriter.println("" + device.getName() + ";" + testCase.getName() + ";" + "timeout" + ";" + now + ";" + testRun.getRequestStartTime() + ";" + testRun.getExecRequestReturnedTimeMillis() + ";" + testRun.getExecutionId() + ";" + testRun.getErrorsWhileGettingReport() + ";;;" + willBeRetried);

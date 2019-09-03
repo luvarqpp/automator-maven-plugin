@@ -23,3 +23,8 @@ gpg --keyserver hkp://pool.sks-keyservers.net --send-keys 537F0921
 
 Realm: Jamo Solutions
 email: info@jamosolutions.com
+
+TODO:
+* OnlineLogTestRunExecReport improvements:
+** logSummaryReport should print info about retries per device
+** logProgressReport could print somehow info about which devices are idle and how long queues does have other devices
